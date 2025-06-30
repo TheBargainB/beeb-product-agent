@@ -74,8 +74,11 @@ def search_products(query: str) -> str:
     Search for products in the database using text search.
     Use this tool to find products based on product names, descriptions, or general search terms.
     
+    ⚠️ IMPORTANT: Products are primarily in Dutch. If user searches in English, try Dutch equivalents:
+    - 'milk' → 'melk', 'dairy' → 'zuivel', 'chocolate' → 'chocolade', 'bread' → 'brood'
+    
     Args:
-        query: The search query string
+        query: The search query string (try Dutch terms for better results)
         
     Returns:
         Formatted string containing product information
@@ -124,8 +127,11 @@ def search_products_by_category(category: str) -> str:
     """
     Search for products within a specific category.
     
+    ⚠️ IMPORTANT: Categories are in Dutch. Common translations:
+    - 'dairy' → 'zuivel', 'beverages' → 'dranken', 'meat' → 'vlees', 'bakery' → 'bakkerij'
+    
     Args:
-        category: The category name to search within
+        category: The category name to search within (use Dutch category names)
         
     Returns:
         Formatted string containing products in the category

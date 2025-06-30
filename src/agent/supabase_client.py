@@ -8,6 +8,8 @@ from typing import List, Dict, Any
 class SupabaseClient:
     """Client for interacting with Supabase product database."""
     
+
+
     def __init__(self):
         """Initialize the Supabase client."""
         self.url = os.getenv("SUPABASE_URL", "https://oumhprsxyxnocgbzosvh.supabase.co")
