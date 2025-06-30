@@ -30,15 +30,17 @@ class SupabaseClient:
             List of product dictionaries with pricing info
         """
         try:
-            # Search across product name and get category info
+            # Search across product title and get related info
             response = (
                 self.client
-                .from_("products")
+                .from_("repo_products")
                 .select("""
                     *,
-                    categories(*)
+                    repo_brands(*),
+                    repo_categories(*),
+                    repo_subcategories(*)
                 """)
-                .ilike("name", f"%{query}%")
+                .ilike("title", f"%{query}%")
                 .limit(limit)
                 .execute()
             )
@@ -71,10 +73,12 @@ class SupabaseClient:
         try:
             response = (
                 self.client
-                .from_("products")
+                .from_("repo_products")
                 .select("""
                     *,
-                    categories(*)
+                    repo_brands(*),
+                    repo_categories(*),
+                    repo_subcategories(*)
                 """)
                 .eq("gtin", gtin)
                 .single()
@@ -106,7 +110,7 @@ class SupabaseClient:
             # Find category ID(s) matching the name
             category_response = (
                 self.client
-                .from_("categories")
+                .from_("repo_categories")
                 .select("id")
                 .ilike("name", f"%{category}%")
                 .execute()
@@ -121,10 +125,12 @@ class SupabaseClient:
             # Get products with these categories
             response = (
                 self.client
-                .from_("products")
+                .from_("repo_products")
                 .select("""
                     *,
-                    categories(*)
+                    repo_brands(*),
+                    repo_categories(*),
+                    repo_subcategories(*)
                 """)
                 .in_("category_id", category_ids)
                 .limit(limit)
@@ -176,10 +182,12 @@ class SupabaseClient:
             # Get products with these GTINs
             response = (
                 self.client
-                .from_("products")
+                .from_("repo_products")
                 .select("""
                     *,
-                    categories(*)
+                    repo_brands(*),
+                    repo_categories(*),
+                    repo_subcategories(*)
                 """)
                 .in_("gtin", gtins)
                 .limit(limit)

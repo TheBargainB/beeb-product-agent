@@ -12,42 +12,56 @@ supabase_client = SupabaseClient()
 
 def format_product_result(product: Dict[str, Any]) -> str:
     """Format a product result for the LLM."""
-    result = f"Product: {product.get('title', 'N/A')}\n"
+    # Try both 'name' and 'title' fields for product name
+    product_name = product.get('name') or product.get('title', 'N/A')
+    result = f"Product: {product_name}\n"
     result += f"GTIN: {product.get('gtin', 'N/A')}\n"
     result += f"Description: {product.get('description', 'N/A')}\n"
     
-    # Add brand information
+    # Add category information from direct relationship
+    if product.get('categories'):
+        category = product['categories']
+        if isinstance(category, dict):
+            result += f"Category: {category.get('name', 'N/A')}\n"
+    
+    # Add pricing information if available
+    pricing_info = []
+    if product.get('albert'):
+        albert = product['albert']
+        price = albert.get('price_per_unit', albert.get('price'))
+        if price:
+            pricing_info.append(f"Albert Heijn: €{price}")
+    
+    if product.get('jumbo'):
+        jumbo = product['jumbo']
+        price = jumbo.get('price_per_unit', jumbo.get('price'))
+        brand = jumbo.get('brand_name')
+        if price:
+            pricing_info.append(f"Jumbo: €{price}")
+        if brand:
+            result += f"Brand: {brand}\n"
+    
+    if product.get('dirk'):
+        dirk = product['dirk']
+        price = dirk.get('price_per_unit', dirk.get('price'))
+        if price:
+            pricing_info.append(f"Dirk: €{price}")
+    
+    if pricing_info:
+        result += f"Prices: {', '.join(pricing_info)}\n"
+    
+    # Legacy support for repo_* tables
     if product.get('repo_brands'):
         brand = product['repo_brands']
         result += f"Brand: {brand.get('name', 'N/A')}\n"
     
-    # Add category information
     if product.get('repo_categories'):
         category = product['repo_categories']
         result += f"Category: {category.get('name', 'N/A')}\n"
     
-    # Add subcategory information
     if product.get('repo_subcategories'):
         subcategory = product['repo_subcategories']
         result += f"Subcategory: {subcategory.get('name', 'N/A')}\n"
-    
-    # Add packaging information
-    if product.get('repo_packaging'):
-        packaging = product['repo_packaging']
-        if isinstance(packaging, list) and packaging:
-            pkg = packaging[0]
-            result += f"Unit Size: {pkg.get('unit_amount', 'N/A')} {pkg.get('unit_type', '')}\n"
-            result += f"Quantity: {pkg.get('quantity', 'N/A')}\n"
-    
-    # Add attributes
-    if product.get('repo_product_attributes'):
-        attributes = product['repo_product_attributes']
-        if isinstance(attributes, list):
-            for attr in attributes:
-                attr_name = attr.get('attribute_name', '')
-                attr_value = attr.get('attribute_value', '')
-                if attr_name and attr_value:
-                    result += f"{attr_name}: {attr_value}\n"
     
     result += "\n"
     return result
