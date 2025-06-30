@@ -30,28 +30,19 @@ class SupabaseClient:
             List of product dictionaries with pricing info
         """
         try:
-            # Search across product title and get related info
+            # Use the optimized view for lightning-fast queries
             response = (
                 self.client
-                .from_("repo_products")
-                .select("""
-                    *,
-                    repo_brands(*),
-                    repo_categories(*),
-                    repo_subcategories(*)
-                """)
+                .from_("products_optimized")
+                .select("*")
                 .ilike("title", f"%{query}%")
                 .limit(limit)
                 .execute()
             )
             
             if response.data:
-                # Enrich with pricing data
-                enriched_products = []
-                for product in response.data:
-                    enriched_product = self._enrich_with_pricing(product)
-                    enriched_products.append(enriched_product)
-                return enriched_products
+                # No enrichment needed - optimized view has everything!
+                return response.data
             else:
                 print(f"No products found for query: {query}")
                 return []
@@ -73,20 +64,15 @@ class SupabaseClient:
         try:
             response = (
                 self.client
-                .from_("repo_products")
-                .select("""
-                    *,
-                    repo_brands(*),
-                    repo_categories(*),
-                    repo_subcategories(*)
-                """)
+                .from_("products_optimized")
+                .select("*")
                 .eq("gtin", gtin)
                 .single()
                 .execute()
             )
             
             if response.data:
-                return self._enrich_with_pricing(response.data)
+                return response.data  # Already optimized!
             else:
                 print(f"No product found with GTIN: {gtin}")
                 return None
@@ -107,42 +93,18 @@ class SupabaseClient:
             List of product dictionaries
         """
         try:
-            # Find category ID(s) matching the name
-            category_response = (
-                self.client
-                .from_("repo_categories")
-                .select("id")
-                .ilike("name", f"%{category}%")
-                .execute()
-            )
-            
-            if not category_response.data:
-                print(f"No category found matching: {category}")
-                return []
-            
-            category_ids = [cat["id"] for cat in category_response.data]
-            
-            # Get products with these categories
+            # Search directly in the optimized view - much simpler!
             response = (
                 self.client
-                .from_("repo_products")
-                .select("""
-                    *,
-                    repo_brands(*),
-                    repo_categories(*),
-                    repo_subcategories(*)
-                """)
-                .in_("category_id", category_ids)
+                .from_("products_optimized")
+                .select("*")
+                .ilike("category_name", f"%{category}%")
                 .limit(limit)
                 .execute()
             )
             
             if response.data:
-                enriched_products = []
-                for product in response.data:
-                    enriched_product = self._enrich_with_pricing(product)
-                    enriched_products.append(enriched_product)
-                return enriched_products
+                return response.data  # Already optimized!
             else:
                 return []
             
@@ -162,44 +124,18 @@ class SupabaseClient:
             List of product dictionaries
         """
         try:
-            # Search for brand in jumbo_prices which has brand_name
-            brand_response = (
-                self.client
-                .from_("jumbo_prices")
-                .select("gtin")
-                .ilike("brand_name", f"%{brand}%")
-                .limit(limit * 2)  # Get more GTINs to account for duplicates
-                .execute()
-            )
-            
-            if not brand_response.data:
-                print(f"No brand found matching: {brand}")
-                return []
-            
-            # Get unique GTINs
-            gtins = list(set(price["gtin"] for price in brand_response.data))[:limit]
-            
-            # Get products with these GTINs
+            # Search directly by brand name in the optimized view
             response = (
                 self.client
-                .from_("repo_products")
-                .select("""
-                    *,
-                    repo_brands(*),
-                    repo_categories(*),
-                    repo_subcategories(*)
-                """)
-                .in_("gtin", gtins)
+                .from_("products_optimized")
+                .select("*")
+                .ilike("brand_name", f"%{brand}%")
                 .limit(limit)
                 .execute()
             )
             
             if response.data:
-                enriched_products = []
-                for product in response.data:
-                    enriched_product = self._enrich_with_pricing(product)
-                    enriched_products.append(enriched_product)
-                return enriched_products
+                return response.data  # Already optimized!
             else:
                 return []
             
@@ -269,11 +205,11 @@ class SupabaseClient:
             True if connection is successful, False otherwise
         """
         try:
-            # Test basic connection by getting a few products
+            # Test basic connection by getting a few products from optimized view
             response = (
                 self.client
-                .from_("products")
-                .select("id, name")
+                .from_("products_optimized")
+                .select("gtin, title")
                 .limit(1)
                 .execute()
             )

@@ -12,56 +12,57 @@ supabase_client = SupabaseClient()
 
 def format_product_result(product: Dict[str, Any]) -> str:
     """Format a product result for the LLM."""
-    # Try both 'name' and 'title' fields for product name
-    product_name = product.get('name') or product.get('title', 'N/A')
-    result = f"Product: {product_name}\n"
+    # Use optimized view fields - much simpler!
+    result = f"Product: {product.get('title', 'N/A')}\n"
     result += f"GTIN: {product.get('gtin', 'N/A')}\n"
     result += f"Description: {product.get('description', 'N/A')}\n"
     
-    # Add category information from direct relationship
-    if product.get('categories'):
-        category = product['categories']
-        if isinstance(category, dict):
-            result += f"Category: {category.get('name', 'N/A')}\n"
+    # Brand and category from optimized view
+    if product.get('brand_name'):
+        result += f"Brand: {product.get('brand_name')}\n"
     
-    # Add pricing information if available
+    if product.get('category_name'):
+        result += f"Category: {product.get('category_name')}\n"
+    
+    if product.get('subcategory_name'):
+        result += f"Subcategory: {product.get('subcategory_name')}\n"
+    
+    # Pricing from optimized view - all stores in one place!
     pricing_info = []
-    if product.get('albert'):
-        albert = product['albert']
-        price = albert.get('price_per_unit', albert.get('price'))
-        if price:
-            pricing_info.append(f"Albert Heijn: €{price}")
     
-    if product.get('jumbo'):
-        jumbo = product['jumbo']
-        price = jumbo.get('price_per_unit', jumbo.get('price'))
-        brand = jumbo.get('brand_name')
-        if price:
-            pricing_info.append(f"Jumbo: €{price}")
-        if brand:
-            result += f"Brand: {brand}\n"
+    # Albert Heijn pricing
+    albert_price = product.get('albert_price')
+    if albert_price:
+        pricing_info.append(f"Albert Heijn: €{albert_price}")
     
-    if product.get('dirk'):
-        dirk = product['dirk']
-        price = dirk.get('price_per_unit', dirk.get('price'))
-        if price:
-            pricing_info.append(f"Dirk: €{price}")
+    # Dirk pricing  
+    dirk_price = product.get('dirk_price')
+    if dirk_price:
+        pricing_info.append(f"Dirk: €{dirk_price}")
+    
+    # Jumbo pricing
+    jumbo_price = product.get('jumbo_price')
+    if jumbo_price:
+        pricing_info.append(f"Jumbo: €{jumbo_price}")
     
     if pricing_info:
         result += f"Prices: {', '.join(pricing_info)}\n"
     
-    # Legacy support for repo_* tables
-    if product.get('repo_brands'):
-        brand = product['repo_brands']
-        result += f"Brand: {brand.get('name', 'N/A')}\n"
+    # Best price if available
+    if product.get('best_price') and product.get('best_store'):
+        result += f"Best Deal: €{product.get('best_price')} at {product.get('best_store')}\n"
     
-    if product.get('repo_categories'):
-        category = product['repo_categories']
-        result += f"Category: {category.get('name', 'N/A')}\n"
+    # Availability
+    stores_available = []
+    if product.get('albert_available'):
+        stores_available.append("Albert Heijn")
+    if product.get('dirk_available'):
+        stores_available.append("Dirk")
+    if product.get('jumbo_available'):
+        stores_available.append("Jumbo")
     
-    if product.get('repo_subcategories'):
-        subcategory = product['repo_subcategories']
-        result += f"Subcategory: {subcategory.get('name', 'N/A')}\n"
+    if stores_available:
+        result += f"Available at: {', '.join(stores_available)}\n"
     
     result += "\n"
     return result
