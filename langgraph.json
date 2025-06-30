@@ -1,0 +1,13 @@
+{
+  "dependencies": [
+    "."
+  ],
+  "graphs": {
+    "product_retrieval_agent": {
+      "path": "src.agent.graph:create_agent_graph",
+      "description": "Product retrieval agent for searching and finding products with intelligent query processing"
+    }
+  },
+  "env": ".env",
+  "image_distro": "wolfi"
+}
