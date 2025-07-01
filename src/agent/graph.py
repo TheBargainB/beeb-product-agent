@@ -1,12 +1,13 @@
-"""Main graph definition for the product retrieval agent with Supabase memory capabilities."""
+"""Main graph definition for the product retrieval agent with Supabase memory capabilities and guard rails."""
 
 import os
+import time
 from typing import Literal
 from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import ToolNode
 from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.runnables.config import RunnableConfig
-from langchain_core.messages import SystemMessage
+from langchain_core.messages import SystemMessage, HumanMessage
 
 from .nodes import (
     generate_query_or_respond,
@@ -19,6 +20,12 @@ from .nodes import (
 from .tools import AVAILABLE_TOOLS
 from .memory_tools import SupabaseMemoryManager, UpdateMemory
 from .config import get_config
+from .guard_rails import (
+    get_guard_rails, 
+    RateLimitExceeded, 
+    ContentSafetyViolation, 
+    CostLimitExceeded
+)
 
 
 def validate_environment():
@@ -96,27 +103,96 @@ You help with grocery shopping, meal planning, budget tracking, and product reco
 - Keep responses concise but informative (max {max_response_length} chars)"""
 
     def enhanced_generate_query_or_respond(state: EnhancedMessagesState, config: RunnableConfig):
-        """Enhanced query generation with memory context and routing decisions."""
-        # Get user context from memory manager
-        user_context = memory_manager.format_user_context()
+        """Enhanced query generation with memory context, routing decisions, and guard rails."""
+        start_time = time.time()
+        guard_rails = get_guard_rails()
         
-        # Get the agent config (not the RunnableConfig)
-        agent_config = get_config()
-        
-        # Format system message with user context and config
-        system_msg = ENHANCED_SYSTEM_MESSAGE.format(
-            customer_name=agent_config.get_customer_name(),
-            user_context=user_context,
-            max_response_length=agent_config.get_max_response_length()
-        )
-        
-        # Bind both product search tools and memory update tool
-        all_tools = AVAILABLE_TOOLS + [UpdateMemory]
-        enhanced_model = model.bind_tools(all_tools, parallel_tool_calls=False)
-        
-        response = enhanced_model.invoke([SystemMessage(content=system_msg)] + state["messages"])
-        
-        return {"messages": [response]}
+        try:
+            # Extract user ID from config
+            user_id = config.get("configurable", {}).get("user_id", "anonymous")
+            
+            # Get the last user message for guard rails validation
+            last_user_message = None
+            for msg in reversed(state["messages"]):
+                if hasattr(msg, 'type') and msg.type == 'human':
+                    last_user_message = msg.content
+                    break
+            
+            # Apply guard rails if we have a user message
+            if last_user_message:
+                # Check rate limits
+                guard_rails.check_rate_limits(user_id)
+                
+                # Validate and sanitize input content
+                sanitized_message = guard_rails.validate_input_content(last_user_message, user_id)
+                
+                # Update the message in state if it was sanitized
+                if sanitized_message != last_user_message:
+                    # Replace the last human message with sanitized version
+                    for i, msg in enumerate(state["messages"]):
+                        if hasattr(msg, 'type') and msg.type == 'human' and msg.content == last_user_message:
+                            state["messages"][i] = HumanMessage(content=sanitized_message)
+                            break
+            
+            # Get user context from memory manager
+            user_context = memory_manager.format_user_context()
+            
+            # Get the agent config (not the RunnableConfig)
+            agent_config = get_config()
+            
+            # Format system message with user context and config
+            system_msg = ENHANCED_SYSTEM_MESSAGE.format(
+                customer_name=agent_config.get_customer_name(),
+                user_context=user_context,
+                max_response_length=agent_config.get_max_response_length()
+            )
+            
+            # Bind both product search tools and memory update tool
+            all_tools = AVAILABLE_TOOLS + [UpdateMemory]
+            enhanced_model = model.bind_tools(all_tools, parallel_tool_calls=False)
+            
+            # Make the LLM call
+            response = enhanced_model.invoke([SystemMessage(content=system_msg)] + state["messages"])
+            
+            # Check cost limits based on token usage
+            if hasattr(response, 'usage_metadata') and response.usage_metadata:
+                tokens_used = response.usage_metadata.get('total_tokens', 0)
+                guard_rails.check_cost_limits(user_id, tokens_used=tokens_used, tool_calls=len(response.tool_calls) if response.tool_calls else 0)
+            
+            # Record response time
+            response_time = (time.time() - start_time) * 1000
+            guard_rails.record_response_time(response_time)
+            
+            return {"messages": [response]}
+            
+        except (RateLimitExceeded, ContentSafetyViolation, CostLimitExceeded) as e:
+            guard_rails.record_error(user_id, e)
+            
+            # Return appropriate fallback response
+            if isinstance(e, RateLimitExceeded):
+                fallback = guard_rails.get_fallback_response('rate_limit')
+            elif isinstance(e, ContentSafetyViolation):
+                fallback = guard_rails.get_fallback_response('content_safety')
+            elif isinstance(e, CostLimitExceeded):
+                fallback = guard_rails.get_fallback_response('cost_limit')
+            else:
+                fallback = guard_rails.get_fallback_response('general_error')
+            
+            # Return fallback as AI message
+            from langchain_core.messages import AIMessage
+            return {"messages": [AIMessage(content=fallback)]}
+            
+        except Exception as e:
+            guard_rails.record_error(user_id, e)
+            
+            # If graceful degradation is enabled, return fallback
+            if agent_config.is_graceful_degradation_enabled():
+                fallback = guard_rails.get_fallback_response('general_error')
+                from langchain_core.messages import AIMessage
+                return {"messages": [AIMessage(content=fallback)]}
+            
+            # Otherwise re-raise the exception
+            raise
 
     def route_decision(state: EnhancedMessagesState, config: RunnableConfig) -> Literal["product_search", "update_memory", "respond_directly"]:
         """Route based on the tool calls made by the model."""
@@ -166,38 +242,103 @@ You help with grocery shopping, meal planning, budget tracking, and product reco
         return state
 
     def final_response(state: EnhancedMessagesState, config: RunnableConfig):
-        """Generate final response with updated memory context."""
-        # Get updated user context
-        user_context = memory_manager.format_user_context()
+        """Generate final response with updated memory context and comprehensive communication validation."""
+        guard_rails = get_guard_rails()
+        user_id = config.get("configurable", {}).get("user_id", "anonymous")
         
-        # Create response based on the last interaction
-        last_message = state["messages"][-1]
-        
-        # Check if the last message is a tool message
-        from langchain_core.messages import ToolMessage
-        if isinstance(last_message, ToolMessage):
-            # If last message was a tool response, generate a follow-up
-            system_msg = f"""Based on the memory update, provide a helpful response to the user.
+        try:
+            # Get updated user context
+            user_context = memory_manager.format_user_context()
+            
+            # Get the original user query for compliance checking
+            user_query = ""
+            for msg in state["messages"]:
+                if hasattr(msg, 'type') and msg.type == 'human':
+                    user_query = msg.content
+                    break
+            
+            # Create response based on the last interaction
+            last_message = state["messages"][-1]
+            
+            # Enhanced system message with communication guidelines
+            system_guidelines = """
+COMMUNICATION GUIDELINES:
+- Maintain a friendly, helpful tone while being professional
+- Focus on grocery shopping, meal planning, and product recommendations
+- Always cite store names when mentioning prices (Albert Heijn, Jumbo, Dirk)
+- Provide actionable, specific advice
+- Respect dietary restrictions and cultural preferences
+- Be honest about limitations - don't provide medical, financial, or legal advice
+- Include appropriate disclaimers for prices and availability
+- Keep responses concise but informative
+- Use positive, encouraging language
+"""
+            
+            # Check if the last message is a tool message
+            from langchain_core.messages import ToolMessage
+            if isinstance(last_message, ToolMessage):
+                # If last message was a tool response, generate a follow-up
+                system_msg = f"""Based on the memory update, provide a helpful response to the user.
 
 Current User Context:
 {user_context}
+
+{system_guidelines}
 
 Keep your response concise and helpful. Briefly acknowledge the update and offer relevant assistance."""
-            
-            response = model.invoke([SystemMessage(content=system_msg)] + state["messages"][:-2])
-        else:
-            # Direct response without tool usage
-            system_msg = f"""Provide a helpful response based on the user's request and their context.
+                
+                response = model.invoke([SystemMessage(content=system_msg)] + state["messages"][:-2])
+            else:
+                # Direct response without tool usage
+                system_msg = f"""Provide a helpful response based on the user's request and their context.
 
 Current User Context:
 {user_context}
+
+{system_guidelines}
 
 Be personalized and helpful based on their preferences, dietary restrictions, and shopping history.
 If suggesting products, include specific stores and prices when possible."""
+                
+                response = model.invoke([SystemMessage(content=system_msg)] + state["messages"])
             
-            response = model.invoke([SystemMessage(content=system_msg)] + state["messages"])
-        
-        return {"messages": [response]}
+            # Comprehensive response validation
+            if hasattr(response, 'content'):
+                original_content = response.content
+                
+                # Apply basic validation and sanitization
+                validated_content = guard_rails.validate_response(original_content)
+                
+                # Check communication compliance
+                compliance_check = guard_rails.validate_communication_compliance(validated_content, user_query)
+                
+                if not compliance_check["compliant"]:
+                    # Log compliance issues
+                    for issue in compliance_check["issues"]:
+                        guard_rails.logger.warning(f"Communication compliance issue: {issue}")
+                    
+                    # If confidence is very low, use a fallback response
+                    if compliance_check["confidence_score"] < 0.5:
+                        validated_content = guard_rails.get_fallback_response('general_error')
+                    
+                    # Add a compliance note for monitoring
+                    guard_rails.logger.info(f"Response compliance score: {compliance_check['confidence_score']:.2f}")
+                
+                response.content = validated_content
+            
+            return {"messages": [response]}
+            
+        except Exception as e:
+            guard_rails.record_error(user_id, e)
+            
+            # If graceful degradation is enabled, return fallback
+            agent_config = get_config()
+            if agent_config.is_graceful_degradation_enabled():
+                fallback = guard_rails.get_fallback_response('general_error')
+                from langchain_core.messages import AIMessage
+                return {"messages": [AIMessage(content=fallback)]}
+            
+            raise
 
     # Create the state graph
     builder = StateGraph(EnhancedMessagesState)

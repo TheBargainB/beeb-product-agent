@@ -68,10 +68,157 @@ agent:
     - "Dutch"
     - "English"
 
+# Production Guard Rails Configuration
+guard_rails:
+  # Rate Limiting
+  rate_limiting:
+    enabled: true
+    requests_per_minute: 30        # Max requests per user per minute
+    requests_per_hour: 200         # Max requests per user per hour
+    requests_per_day: 1000         # Max requests per user per day
+    burst_allowance: 5             # Allow short bursts
+    cooldown_period_seconds: 60    # Cooldown after hitting limit
+  
+  # Content Safety
+  content_safety:
+    enabled: true
+    max_message_length: 500        # Max input message length
+    min_message_length: 1          # Min input message length
+    profanity_filter: true         # Filter inappropriate content
+    spam_detection: true           # Detect spam/repeated messages
+    injection_protection: true     # Protect against prompt injection
+    blocked_patterns:              # Patterns to block
+      - "ignore previous"
+      - "disregard instructions"
+      - "system prompt"
+      - "jailbreak"
+    
+  # Cost Controls
+  cost_controls:
+    enabled: true
+    max_tokens_per_request: 4000   # Max tokens per LLM request
+    max_tokens_per_user_hour: 20000 # Max tokens per user per hour
+    max_database_queries_per_request: 10 # Max DB queries per request
+    max_tool_calls_per_request: 5  # Max tool calls per request
+    alert_on_high_usage: true      # Alert on unusual usage patterns
+  
+  # Error Handling & Resilience
+  error_handling:
+    enabled: true
+    max_retries: 3                 # Max retries for failed operations
+    retry_delay_seconds: 1         # Delay between retries
+    graceful_degradation: true     # Provide basic responses on errors
+    fallback_responses: true       # Use fallback responses when needed
+    timeout_seconds: 30            # Request timeout
+    circuit_breaker: true          # Circuit breaker for failing services
+  
+  # Data Protection
+  data_protection:
+    enabled: true
+    anonymize_logs: true           # Remove PII from logs
+    encrypt_sensitive_data: true   # Encrypt sensitive data
+    data_retention_days: 90        # Delete old interaction logs
+    customer_data_isolation: true  # Ensure customer data isolation
+    audit_trail: true              # Maintain audit trail
+  
+  # Monitoring & Alerting
+  monitoring:
+    enabled: true
+    track_response_times: true     # Track performance metrics
+    track_error_rates: true        # Monitor error rates
+    track_usage_patterns: true     # Monitor usage patterns
+    alert_thresholds:
+      error_rate_percent: 5.0      # Alert if error rate > 5%
+      avg_response_time_ms: 10000  # Alert if avg response > 10s
+      unusual_usage_multiplier: 3.0 # Alert if usage 3x normal
+  
+  # Input Validation
+  input_validation:
+    enabled: true
+    sanitize_html: true            # Remove HTML tags
+    validate_json: true            # Validate JSON inputs
+    check_encoding: true           # Check text encoding
+    normalize_whitespace: true     # Normalize whitespace
+    max_search_terms: 10           # Max search terms in query
+  
+  # Response Validation
+  response_validation:
+    enabled: true
+    check_response_length: true    # Ensure responses aren't too long
+    validate_product_data: true    # Validate product information
+    check_price_format: true       # Ensure prices are properly formatted
+    remove_sensitive_info: true    # Remove any leaked sensitive info
+    content_appropriateness: true  # Check response appropriateness
+
+  # Communication Standards & Content Moderation
+  communication_standards:
+    enabled: true
+    
+    # Brand Voice & Tone
+    brand_voice:
+      maintain_friendly_tone: true        # Keep friendly, helpful tone
+      avoid_overly_casual: true          # Maintain professionalism
+      use_positive_language: true        # Focus on positive framing
+      be_concise_and_clear: true         # Clear, actionable responses
+      include_helpful_context: true      # Provide relevant background info
+    
+    # Content Guidelines
+    content_guidelines:
+      no_medical_advice: true            # Don't provide medical advice
+      no_financial_advice: true         # Don't provide investment advice
+      no_legal_advice: true             # Don't provide legal advice
+      factual_accuracy_required: true   # Verify product information
+      cite_sources_for_prices: true     # Always mention store names for prices
+      respect_dietary_restrictions: true # Honor customer's dietary needs
+      cultural_sensitivity: true        # Be respectful of all cultures
+    
+    # Privacy & Safety
+    privacy_protection:
+      no_personal_data_sharing: true     # Never share customer data
+      no_third_party_mentions: true     # Don't mention other customers
+      anonymize_examples: true          # Use generic examples only
+      secure_payment_reminders: true    # Remind about secure payment methods
+      data_usage_transparency: true     # Be clear about data usage
+    
+    # Professional Standards
+    professional_standards:
+      no_inappropriate_content: true    # Block inappropriate topics
+      maintain_grocery_focus: true      # Stay focused on grocery/food topics
+      provide_accurate_prices: true     # Only show verified pricing
+      suggest_realistic_alternatives: true # Practical suggestions only
+      acknowledge_limitations: true     # Be honest about what agent can't do
+    
+    # Response Quality Controls
+    quality_controls:
+      min_helpful_content_ratio: 0.8    # 80% of response should be helpful
+      max_promotional_content: 0.1      # Max 10% promotional content
+      require_actionable_advice: true   # Responses should be actionable
+      check_response_relevance: true    # Ensure responses match query
+      validate_store_availability: true # Verify products are available
+    
+    # Prohibited Content
+    prohibited_content:
+      - "Personal medical advice"
+      - "Investment recommendations"
+      - "Political opinions"
+      - "Religious advice"
+      - "Competitor criticism"
+      - "Unverified health claims"
+      - "Alcohol/tobacco promotion"
+      - "Inappropriate language"
+      - "Off-topic discussions"
+    
+    # Required Disclaimers
+    disclaimers:
+      price_accuracy: "Prices may vary and should be verified at checkout"
+      dietary_advice: "Please consult healthcare providers for specific dietary needs"
+      availability: "Product availability subject to store inventory"
+      general_assistance: "For specific account or order issues, contact customer service"
+
 # Deployment Configuration
 deployment:
   # Environment settings
-  environment: "local"  # local, staging, production
+  environment: "production"  # local, staging, production
   
   # Multi-customer deployment settings
   enable_customer_isolation: true    # Ensure customer data isolation

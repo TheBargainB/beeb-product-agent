@@ -194,6 +194,35 @@ class AgentConfig:
         """Check if mock customer data should be used."""
         return self.config.get('local_development', {}).get('mock_customer_data', False)
     
+    # Guard Rails Methods
+    def are_guard_rails_enabled(self) -> bool:
+        """Check if guard rails are enabled."""
+        return self.config.get('guard_rails', {}).get('rate_limiting', {}).get('enabled', False)
+    
+    def get_rate_limit_config(self) -> Dict[str, Any]:
+        """Get rate limiting configuration."""
+        return self.config.get('guard_rails', {}).get('rate_limiting', {})
+    
+    def get_content_safety_config(self) -> Dict[str, Any]:
+        """Get content safety configuration."""
+        return self.config.get('guard_rails', {}).get('content_safety', {})
+    
+    def get_cost_control_config(self) -> Dict[str, Any]:
+        """Get cost control configuration."""
+        return self.config.get('guard_rails', {}).get('cost_controls', {})
+    
+    def get_error_handling_config(self) -> Dict[str, Any]:
+        """Get error handling configuration."""
+        return self.config.get('guard_rails', {}).get('error_handling', {})
+    
+    def get_monitoring_config(self) -> Dict[str, Any]:
+        """Get monitoring configuration."""
+        return self.config.get('guard_rails', {}).get('monitoring', {})
+    
+    def is_graceful_degradation_enabled(self) -> bool:
+        """Check if graceful degradation is enabled."""
+        return self.config.get('guard_rails', {}).get('error_handling', {}).get('graceful_degradation', False)
+
     # Validation and Summary Methods
     def validate_configuration(self) -> Dict[str, bool]:
         """Validate the current configuration and return status."""
