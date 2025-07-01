@@ -1,107 +1,130 @@
-"""Memory schemas for user profiles, grocery lists, meal plans, and budgets."""
+"""Memory schemas that match the actual Supabase database structure."""
 
 from pydantic import BaseModel, Field
-from typing import List, Optional, Literal
+from typing import List, Optional, Literal, Dict, Any
 from datetime import datetime, date
+from uuid import UUID
 
 
 class UserProfile(BaseModel):
-    """User profile schema for personalization"""
-    name: Optional[str] = Field(description="User's name", default=None)
-    location: Optional[str] = Field(description="User's location/city", default=None)
-    household_size: Optional[int] = Field(description="Number of people in household", default=None)
-    dietary_preferences: List[str] = Field(
-        description="Dietary restrictions/preferences (vegetarian, vegan, gluten-free, etc.)",
-        default_factory=list
-    )
-    allergies: List[str] = Field(
-        description="Food allergies or intolerances",
-        default_factory=list
-    )
+    """User profile schema matching crm_profiles table"""
+    full_name: Optional[str] = Field(description="User's full name", default=None)
+    preferred_name: Optional[str] = Field(description="User's preferred name", default=None)
+    email: Optional[str] = Field(description="User's email address", default=None)
+    date_of_birth: Optional[date] = Field(description="User's date of birth", default=None)
+    lifecycle_stage: Optional[str] = Field(description="Customer lifecycle stage", default="customer")
     preferred_stores: List[str] = Field(
         description="Preferred grocery stores (Albert Heijn, Jumbo, Dirk, etc.)",
         default_factory=list
     )
-    cooking_skill_level: Optional[str] = Field(
-        description="Cooking skill level (beginner, intermediate, advanced)",
-        default=None
-    )
-    favorite_cuisines: List[str] = Field(
-        description="Favorite types of cuisine",
+    shopping_persona: Optional[str] = Field(description="Shopping personality type", default=None)
+    dietary_restrictions: List[str] = Field(
+        description="Dietary restrictions/preferences",
         default_factory=list
     )
-
-
-class GroceryItem(BaseModel):
-    """Individual grocery item schema"""
-    item_name: str = Field(description="Name of the grocery item")
-    quantity: int = Field(description="Quantity needed", default=1)
-    unit: Optional[str] = Field(description="Unit of measurement (kg, pieces, liters, etc.)", default=None)
-    category: Optional[str] = Field(description="Product category", default=None)
-    brand_preference: Optional[str] = Field(description="Preferred brand", default=None)
-    estimated_price: Optional[float] = Field(description="Estimated price in euros", default=None)
-    store: Optional[str] = Field(description="Preferred store to buy from", default=None)
-    priority: str = Field(description="Priority level", default="medium")
+    budget_range: Optional[str] = Field(description="General budget range", default=None)
+    shopping_frequency: Optional[str] = Field(description="How often they shop", default=None)
+    product_interests: List[str] = Field(description="Product categories of interest", default_factory=list)
+    price_sensitivity: Optional[str] = Field(description="Price sensitivity level", default=None)
+    communication_style: Optional[str] = Field(description="Preferred communication style", default=None)
+    response_time_preference: Optional[str] = Field(description="Preferred response time", default=None)
+    notification_preferences: Dict[str, Any] = Field(description="Notification settings", default_factory=dict)
+    tags: List[str] = Field(description="Customer tags", default_factory=list)
     notes: Optional[str] = Field(description="Additional notes", default=None)
-    purchased: bool = Field(description="Whether item has been purchased", default=False)
-    date_added: datetime = Field(description="When item was added", default_factory=datetime.now)
+
+
+class GroceryListProduct(BaseModel):
+    """Product item in grocery list matching the JSONB structure"""
+    gtin: str = Field(description="Product GTIN/barcode")
+    title: str = Field(description="Product title/name")
+    category: str = Field(description="Product category")
+    quantity: int = Field(description="Quantity needed", default=1)
+    estimated_price: float = Field(description="Estimated price per item")
+    actual_price: Optional[float] = Field(description="Actual price paid", default=None)
+    purchased: Optional[bool] = Field(description="Whether item was purchased", default=False)
+    notes: Optional[str] = Field(description="Item notes", default=None)
 
 
 class GroceryList(BaseModel):
-    """Grocery list schema"""
+    """Grocery list schema matching grocery_lists table"""
     list_name: str = Field(description="Name of the grocery list")
-    items: List[GroceryItem] = Field(description="Items in the grocery list", default_factory=list)
-    total_estimated_cost: Optional[float] = Field(description="Total estimated cost", default=None)
-    created_date: datetime = Field(description="When list was created", default_factory=datetime.now)
-    target_date: Optional[date] = Field(description="Target shopping date", default=None)
-    status: str = Field(description="List status", default="active")
-    notes: Optional[str] = Field(description="Additional notes for the list", default=None)
+    products: List[GroceryListProduct] = Field(description="Products in the list", default_factory=list)
+    estimated_total: Optional[float] = Field(description="Total estimated cost", default=None)
+    actual_total: Optional[float] = Field(description="Total actual cost", default=None)
+    preferred_store: Optional[str] = Field(description="Preferred store for shopping", default=None)
+    shopping_date: Optional[date] = Field(description="Planned shopping date", default=None)
+    status: str = Field(description="List status (active, completed, archived)", default="active")
+    is_template: bool = Field(description="Whether this is a template list", default=False)
+    auto_reorder_enabled: bool = Field(description="Enable automatic reordering", default=False)
+    reorder_frequency: Optional[str] = Field(description="Reorder frequency if auto-reorder enabled", default=None)
 
 
 class MealPlan(BaseModel):
-    """Individual meal plan schema"""
-    meal_name: str = Field(description="Name of the meal")
-    meal_type: Literal["breakfast", "lunch", "dinner", "snack"] = Field(description="Type of meal")
+    """Meal plan schema matching meal_plans table"""
+    plan_name: Optional[str] = Field(description="Name of the meal plan", default=None)
     meal_date: date = Field(description="Date for the meal")
+    meal_type: Literal["breakfast", "lunch", "dinner", "snack"] = Field(description="Type of meal")
+    recipe_id: Optional[UUID] = Field(description="Reference to recipe if using existing recipe", default=None)
+    custom_meal_name: Optional[str] = Field(description="Custom meal name if not using recipe", default=None)
+    planned_servings: int = Field(description="Number of servings planned", default=1)
+    notes: Optional[str] = Field(description="Additional notes", default=None)
+    is_completed: bool = Field(description="Whether meal was completed", default=False)
+
+
+class Recipe(BaseModel):
+    """Recipe schema matching recipes table"""
+    name: str = Field(description="Recipe name")
+    description: Optional[str] = Field(description="Recipe description", default=None)
+    instructions: str = Field(description="Cooking instructions")
+    prep_time_minutes: Optional[int] = Field(description="Preparation time in minutes", default=None)
+    cook_time_minutes: Optional[int] = Field(description="Cooking time in minutes", default=None)
     servings: int = Field(description="Number of servings", default=1)
-    prep_time: Optional[int] = Field(description="Preparation time in minutes", default=None)
-    cook_time: Optional[int] = Field(description="Cooking time in minutes", default=None)
-    difficulty: Optional[str] = Field(description="Cooking difficulty level", default=None)
+    difficulty_level: Optional[str] = Field(description="Difficulty level", default="easy")
     cuisine_type: Optional[str] = Field(description="Type of cuisine", default=None)
-    ingredients: List[str] = Field(description="Required ingredients", default_factory=list)
-    instructions: Optional[str] = Field(description="Cooking instructions", default=None)
-    nutritional_info: Optional[str] = Field(description="Nutritional information", default=None)
-    cost_estimate: Optional[float] = Field(description="Estimated cost to make", default=None)
-    tags: List[str] = Field(description="Tags for the meal (quick, healthy, etc.)", default_factory=list)
+    dietary_tags: List[str] = Field(description="Dietary tags (vegetarian, vegan, etc.)", default_factory=list)
+    nutrition_info: Dict[str, Any] = Field(description="Nutritional information", default_factory=dict)
+    image_url: Optional[str] = Field(description="Recipe image URL", default=None)
+    is_public: bool = Field(description="Whether recipe is public", default=True)
 
 
-class Budget(BaseModel):
-    """Budget tracking schema"""
-    category: str = Field(description="Budget category (groceries, dining_out, household, etc.)")
-    amount: float = Field(description="Budget amount in euros")
-    period: Literal["weekly", "monthly", "yearly"] = Field(description="Budget period")
-    spent: float = Field(description="Amount spent so far", default=0.0)
-    remaining: float = Field(description="Remaining budget amount", default=0.0)
-    start_date: date = Field(description="Budget period start date", default_factory=date.today)
-    end_date: Optional[date] = Field(description="Budget period end date", default=None)
-    notes: Optional[str] = Field(description="Budget notes or goals", default=None)
-    alert_threshold: Optional[float] = Field(
-        description="Percentage threshold for budget alerts (0.8 = 80%)",
-        default=0.8
-    )
+class BudgetPeriod(BaseModel):
+    """Budget period schema matching budget_periods table"""
+    period_name: str = Field(description="Name of the budget period")
+    period_type: Literal["weekly", "monthly", "yearly"] = Field(description="Type of budget period")
+    start_date: date = Field(description="Period start date")
+    end_date: date = Field(description="Period end date")
+    total_budget: float = Field(description="Total budget amount")
+    total_spent: Optional[float] = Field(description="Total amount spent", default=0)
+    total_saved: Optional[float] = Field(description="Total amount saved", default=0)
+    currency: str = Field(description="Currency code", default="EUR")
+    is_active: bool = Field(description="Whether this budget period is active", default=True)
 
 
-class ShoppingHistory(BaseModel):
-    """Shopping history tracking"""
-    date: datetime = Field(description="Purchase date", default_factory=datetime.now)
-    store: str = Field(description="Store where purchased")
-    items: List[GroceryItem] = Field(description="Items purchased", default_factory=list)
-    total_cost: float = Field(description="Total amount spent")
+class BudgetCategory(BaseModel):
+    """Budget category schema matching budget_categories table"""
+    category_name: str = Field(description="Name of the budget category")
+    allocated_amount: float = Field(description="Amount allocated to this category")
+    spent_amount: Optional[float] = Field(description="Amount spent in this category", default=0)
+    category_type: Optional[str] = Field(description="Type of category (groceries, household, etc.)", default=None)
+    priority_level: Optional[int] = Field(description="Priority level (1=highest)", default=None)
+    is_flexible: bool = Field(description="Whether this category budget is flexible", default=True)
+
+
+class BudgetExpense(BaseModel):
+    """Budget expense schema matching budget_expenses table"""
+    expense_name: str = Field(description="Name/description of the expense")
+    amount: float = Field(description="Expense amount")
+    expense_date: date = Field(description="Date of expense")
+    expense_type: Optional[str] = Field(description="Type of expense", default=None)
+    store_name: Optional[str] = Field(description="Store where expense occurred", default=None)
+    receipt_number: Optional[str] = Field(description="Receipt number", default=None)
+    products_data: Optional[Dict[str, Any]] = Field(description="Products purchased data", default=None)
     payment_method: Optional[str] = Field(description="Payment method used", default=None)
-    receipt_notes: Optional[str] = Field(description="Additional receipt notes", default=None)
+    tags: List[str] = Field(description="Expense tags", default_factory=list)
+    notes: Optional[str] = Field(description="Additional notes", default=None)
 
 
-# Collection schemas for managing multiple items
+# Collection schemas for memory management
 class UserGroceryLists(BaseModel):
     """Collection of grocery lists for a user"""
     lists: List[GroceryList] = Field(description="User's grocery lists", default_factory=list)
@@ -113,10 +136,6 @@ class UserMealPlans(BaseModel):
 
 
 class UserBudgets(BaseModel):
-    """Collection of budgets for a user"""
-    budgets: List[Budget] = Field(description="User's budgets", default_factory=list)
-
-
-class UserShoppingHistory(BaseModel):
-    """Collection of shopping history for a user"""
-    history: List[ShoppingHistory] = Field(description="User's shopping history", default_factory=list) 
+    """Collection of user budgets including periods and categories"""
+    budget_periods: List[BudgetPeriod] = Field(description="User's budget periods", default_factory=list)
+    budget_categories: List[BudgetCategory] = Field(description="User's budget categories", default_factory=list) 

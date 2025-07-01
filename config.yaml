@@ -1,0 +1,101 @@
+# Multi-Customer Agent Configuration
+# This file allows you to configure which customer profile this agent instance will serve
+
+# Customer Profile Configuration
+customer_profile:
+  # CRM Profile ID from the database (required)
+  # You can find available profile IDs by querying: SELECT id, preferred_name, full_name FROM crm_profiles;
+  crm_profile_id: "4c432d3e-0a15-4272-beda-0d327088d5f6"  # Example UUID from your database
+  
+  # Customer-specific settings
+  customer_name: "Test Customer"  # Friendly name for this customer
+  instance_name: "BargainB Personal Grocery Assistant"
+  instance_description: "Personal grocery shopping and meal planning assistant"
+  
+  # Customer preferences
+  default_language: "en"  # en, nl, etc.
+  preferred_stores: ["Albert Heijn", "Jumbo"]  # Default preferred stores
+  default_currency: "EUR"
+  
+  # Validation settings
+  validate_profile_exists: true  # Verify the profile exists in the database
+  auto_create_profile: false     # Create profile if it doesn't exist
+
+# Database Configuration
+database:
+  # Tables that should exist for full functionality
+  required_tables:
+    - crm_profiles          # Customer profiles and preferences
+    - grocery_lists         # Customer grocery lists with JSONB products
+    - recipes               # Recipe database
+    - meal_plans            # Customer meal planning
+    - budget_periods        # Budget tracking periods
+    - budget_categories     # Budget category allocations
+    - budget_expenses       # Actual spending records
+    - repo_products         # Product search (main catalog)
+    - albert_prices         # Albert Heijn pricing
+    - jumbo_prices          # Jumbo pricing
+    - dirk_prices           # Dirk pricing
+  
+  # Memory storage settings
+  use_supabase_directly: true      # Use Supabase tables directly (not LangGraph store)
+  enable_cross_thread_memory: true # Enable memory across conversations
+
+# Agent Behavior Configuration
+agent:
+  # Memory management settings
+  enable_memory_updates: true
+  memory_update_threshold: 0.7  # Confidence threshold for updating memory
+  
+  # Product search settings
+  default_search_limit: 10
+  enable_pricing_data: true
+  price_comparison_enabled: true  # Compare prices across stores
+  
+  # Personalization settings
+  enable_personalized_recommendations: true
+  consider_dietary_restrictions: true
+  consider_budget_constraints: true
+  suggest_alternatives: true
+  
+  # Response settings
+  max_response_length: 2000
+  include_price_estimates: true
+  suggest_recipes_for_ingredients: true
+  
+  # Supported languages for product search and responses
+  supported_languages:
+    - "Dutch"
+    - "English"
+
+# Deployment Configuration
+deployment:
+  # Environment settings
+  environment: "local"  # local, staging, production
+  
+  # Multi-customer deployment settings
+  enable_customer_isolation: true    # Ensure customer data isolation
+  log_customer_interactions: true    # Log for analytics (anonymized)
+  
+  # Performance settings
+  cache_product_searches: true
+  cache_duration_minutes: 30
+  
+  # Safety settings
+  validate_all_database_operations: true
+  enable_query_logging: false  # For debugging (disable in production)
+
+# Local Development Settings
+local_development:
+  # Database connection settings for local testing
+  use_local_supabase: false
+  local_db_url: null
+  
+  # Testing settings
+  test_customer_profile_id: "4c432d3e-0a15-4272-beda-0d327088d5f6"
+  enable_debug_logging: true
+  simulate_slow_responses: false
+  
+  # Mock data settings
+  use_mock_pricing_data: false
+  mock_customer_data: false 

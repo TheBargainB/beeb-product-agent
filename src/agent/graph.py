@@ -1,12 +1,10 @@
-"""Main graph definition for the product retrieval agent with memory capabilities."""
+"""Main graph definition for the product retrieval agent with Supabase memory capabilities."""
 
 import os
 from typing import Literal
 from langgraph.graph import StateGraph, START, END
-from langgraph.prebuilt import ToolNode, tools_condition
-from langgraph.store.memory import InMemoryStore
+from langgraph.prebuilt import ToolNode
 from langgraph.checkpoint.memory import MemorySaver
-from langgraph.store.base import BaseStore
 from langchain_core.runnables.config import RunnableConfig
 from langchain_core.messages import SystemMessage
 
@@ -19,13 +17,15 @@ from .nodes import (
     EnhancedMessagesState
 )
 from .tools import AVAILABLE_TOOLS
-from .memory_tools import MemoryManager, UpdateMemory
+from .memory_tools import SupabaseMemoryManager, UpdateMemory
+from .config import get_config
 
 
 def validate_environment():
     """Validate that all required environment variables are set."""
     required_vars = [
         "OPENAI_API_KEY",
+        "SUPABASE_URL",
         "SUPABASE_ANON_KEY"
     ]
     
@@ -40,61 +40,75 @@ def validate_environment():
     print("✅ Environment validation passed")
 
 
-def create_agent_graph():
-    """Create the enhanced agent graph with memory capabilities."""
+def create_enhanced_agent_graph():
+    """Create the enhanced agent graph with Supabase memory capabilities."""
     # Validate environment
     validate_environment()
     
+    # Get configuration
+    config = get_config()
+    print(config.get_config_summary())
+    
     # Import here to avoid circular imports
     from langchain_openai import ChatOpenAI
+    from .supabase_client import SupabaseClient
     
-    # Initialize the model and memory manager
+    # Initialize the model, supabase client, and memory manager
     model = ChatOpenAI(model="gpt-4o-mini", temperature=0)
-    memory_manager = MemoryManager(model)
+    supabase_client = SupabaseClient()
+    memory_manager = SupabaseMemoryManager(model, supabase_client)
     
     # Enhanced system message with memory context
-    ENHANCED_SYSTEM_MESSAGE = """You are a helpful grocery and meal planning assistant with long-term memory.
+    ENHANCED_SYSTEM_MESSAGE = """You are a helpful grocery and meal planning assistant for {customer_name}.
 
-You help users with:
-- 🛒 Product searches and recommendations  
-- 📝 Grocery list management
-- 🍽️ Meal planning
-- 💰 Budget tracking
-- 📊 Shopping history
+🎯 **Your Role:**
+You help with grocery shopping, meal planning, budget tracking, and product recommendations using real Dutch supermarket data.
 
-You have access to:
-1. **Product Database**: Search Dutch grocery products with prices from Albert Heijn, Jumbo, and Dirk
-2. **User Memory**: Personal preferences, dietary restrictions, shopping history
-3. **Memory Management**: Can save user profiles, grocery lists, meal plans, and budgets
+🛠️ **Your Capabilities:**
+1. **Product Search**: Search products from Albert Heijn, Jumbo, and Dirk with real prices
+2. **Memory Management**: Remember user preferences, grocery lists, meal plans, and budgets
+3. **Personalized Recommendations**: Suggest products based on dietary restrictions and preferences
+4. **Price Comparison**: Compare prices across different stores
+5. **Smart Shopping**: Create and manage grocery lists with cost estimates
 
-**Current User Context:**
+📊 **Current User Context:**
 {user_context}
 
-**Instructions:**
-1. Use the user's context to personalize all recommendations
-2. Consider dietary preferences, allergies, and budget constraints  
-3. Suggest products from their preferred stores when possible
-4. When users mention personal info, grocery items, meal plans, or budgets, decide whether to update memory
-5. Always provide helpful, actionable advice for grocery shopping and meal planning
+🎯 **Instructions:**
+1. **Be Personal**: Use the user's context to provide personalized recommendations
+2. **Consider Constraints**: Always respect dietary restrictions, allergies, and budget limits
+3. **Be Practical**: Provide actionable advice with specific products and stores
+4. **Save Information**: When users mention personal info, grocery items, meal plans, or budgets, update memory appropriately
+5. **Compare Prices**: When showing products, include prices from multiple stores when available
+6. **Be Helpful**: Suggest alternatives, recipes, and money-saving tips
 
-**Memory Update Decision:**
-- Personal information (name, location, preferences, allergies) → update profile
-- Grocery items, shopping lists → update grocery_list  
-- Meal planning, recipes, cooking → update meal_plan
-- Budget amounts, spending limits → update budget
-- Shopping receipts, purchase history → update shopping_history
+**Memory Update Decision Rules:**
+- 🧑‍💼 Personal information (name, preferences, allergies, diet) → update profile
+- 🛒 Grocery items, shopping lists, specific products → update grocery_list  
+- 🍽️ Meal planning, recipes, cooking plans → update meal_plan
+- 💰 Budget amounts, spending limits, financial goals → update budget
 
-Be proactive about saving relevant information to provide better personalized service in future conversations."""
+**Response Style:**
+- Be friendly and conversational
+- Use emojis to make responses engaging
+- Include practical tips and suggestions
+- Always mention store names and prices when relevant
+- Keep responses concise but informative (max {max_response_length} chars)"""
 
-    def enhanced_generate_query_or_respond(state: EnhancedMessagesState, config: RunnableConfig, store: BaseStore):
+    def enhanced_generate_query_or_respond(state: EnhancedMessagesState, config: RunnableConfig):
         """Enhanced query generation with memory context and routing decisions."""
-        user_id = config["configurable"]["user_id"]
+        # Get user context from memory manager
+        user_context = memory_manager.format_user_context()
         
-        # Get user context from memory
-        user_context = memory_manager.format_user_context(store, user_id)
+        # Get the agent config (not the RunnableConfig)
+        agent_config = get_config()
         
-        # Format system message with user context
-        system_msg = ENHANCED_SYSTEM_MESSAGE.format(user_context=user_context)
+        # Format system message with user context and config
+        system_msg = ENHANCED_SYSTEM_MESSAGE.format(
+            customer_name=agent_config.get_customer_name(),
+            user_context=user_context,
+            max_response_length=agent_config.get_max_response_length()
+        )
         
         # Bind both product search tools and memory update tool
         all_tools = AVAILABLE_TOOLS + [UpdateMemory]
@@ -104,7 +118,7 @@ Be proactive about saving relevant information to provide better personalized se
         
         return {"messages": [response]}
 
-    def route_decision(state: EnhancedMessagesState, config: RunnableConfig, store: BaseStore) -> Literal["product_search", "update_memory", "respond_directly"]:
+    def route_decision(state: EnhancedMessagesState, config: RunnableConfig) -> Literal["product_search", "update_memory", "respond_directly"]:
         """Route based on the tool calls made by the model."""
         message = state['messages'][-1]
         
@@ -121,24 +135,20 @@ Be proactive about saving relevant information to provide better personalized se
         else:
             return "respond_directly"
 
-    def update_memory_node(state: EnhancedMessagesState, config: RunnableConfig, store: BaseStore):
+    def update_memory_node(state: EnhancedMessagesState, config: RunnableConfig):
         """Update user memory based on the memory type specified."""
-        user_id = config["configurable"]["user_id"]
         tool_call = state['messages'][-1].tool_calls[0]
         update_type = tool_call['args']['update_type']
         
         # Route to appropriate memory update function
         if update_type == 'profile':
-            result = memory_manager.update_profile(store, user_id, state["messages"])
+            result = memory_manager.update_profile_memory(state["messages"])
         elif update_type == 'grocery_list':
-            result = memory_manager.update_grocery_lists(store, user_id, state["messages"])
+            result = memory_manager.update_grocery_memory(state["messages"])
         elif update_type == 'meal_plan':
-            result = memory_manager.update_meal_plans(store, user_id, state["messages"])
+            result = memory_manager.update_meal_memory(state["messages"])
         elif update_type == 'budget':
-            result = memory_manager.update_budgets(store, user_id, state["messages"])
-        elif update_type == 'shopping_history':
-            # For shopping history, we'll extract purchase data from messages
-            result = "Shopping history update not yet implemented"
+            result = memory_manager.update_budget_memory(state["messages"])
         else:
             result = f"Unknown memory update type: {update_type}"
         
@@ -151,17 +161,14 @@ Be proactive about saving relevant information to provide better personalized se
         
         return {"messages": [tool_response]}
 
-    def respond_directly(state: EnhancedMessagesState, config: RunnableConfig, store: BaseStore):
+    def respond_directly(state: EnhancedMessagesState, config: RunnableConfig):
         """Handle direct responses when no tools are called."""
-        # Just pass through the current state - final_response will handle the actual response
         return state
 
-    def final_response(state: EnhancedMessagesState, config: RunnableConfig, store: BaseStore):
+    def final_response(state: EnhancedMessagesState, config: RunnableConfig):
         """Generate final response with updated memory context."""
-        user_id = config["configurable"]["user_id"]
-        
         # Get updated user context
-        user_context = memory_manager.format_user_context(store, user_id)
+        user_context = memory_manager.format_user_context()
         
         # Create response based on the last interaction
         last_message = state["messages"][-1]
@@ -172,18 +179,21 @@ Be proactive about saving relevant information to provide better personalized se
             # If last message was a tool response, generate a follow-up
             system_msg = f"""Based on the memory update, provide a helpful response to the user.
 
+Current User Context:
 {user_context}
 
-Keep your response concise and helpful. If memory was updated, briefly acknowledge it and offer relevant assistance."""
+Keep your response concise and helpful. Briefly acknowledge the update and offer relevant assistance."""
             
             response = model.invoke([SystemMessage(content=system_msg)] + state["messages"][:-2])
         else:
             # Direct response without tool usage
             system_msg = f"""Provide a helpful response based on the user's request and their context.
 
+Current User Context:
 {user_context}
 
-Be personalized and helpful based on their preferences and history."""
+Be personalized and helpful based on their preferences, dietary restrictions, and shopping history.
+If suggesting products, include specific stores and prices when possible."""
             
             response = model.invoke([SystemMessage(content=system_msg)] + state["messages"])
         
@@ -209,7 +219,7 @@ Be personalized and helpful based on their preferences and history."""
     # Product search flow (existing logic)
     builder.add_conditional_edges(
         "product_search",
-        grade_documents,  # Use grade_documents directly as conditional edge function
+        grade_documents,
         {
             "generate_answer": "generate_answer",
             "rewrite_question": "rewrite_question", 
@@ -224,127 +234,153 @@ Be personalized and helpful based on their preferences and history."""
     builder.add_edge("update_memory", "final_response")
     builder.add_edge("final_response", END)
     
-    # Direct response flow - route to final_response when no tools are called
+    # Direct response flow
     builder.add_edge("respond_directly", "final_response")
 
-    # Store for long-term (across-thread) memory
-    across_thread_memory = InMemoryStore()
-    
     # Checkpointer for short-term (within-thread) memory
     within_thread_memory = MemorySaver()
     
     # Compile graph with memory capabilities
-    graph = builder.compile(
-        checkpointer=within_thread_memory,
-        store=across_thread_memory
-    )
+    graph = builder.compile(checkpointer=within_thread_memory)
     
-    print("✅ Enhanced agent graph with memory capabilities compiled successfully")
+    print("✅ Enhanced agent graph with Supabase memory capabilities compiled successfully")
     
     return graph
 
 
-# Keep the existing graph creation for backwards compatibility
-def create_original_graph():
-    """Create the original product retrieval graph without memory."""
-    validate_environment()
+def create_local_test_graph():
+    """Create a simplified graph for local testing."""
+    print("🧪 Creating local test graph...")
     
-    # Create the state graph
-    builder = StateGraph(EnhancedMessagesState)
+    # Validate environment
+    try:
+        validate_environment()
+    except ValueError as e:
+        print(f"⚠️  Environment validation failed: {e}")
+        print("🔧 Please set up your environment variables before running locally")
+        return None
     
-    # Add nodes with original functionality
-    builder.add_node("generate_query_or_respond", generate_query_or_respond)
-    builder.add_node("retrieve", ToolNode(AVAILABLE_TOOLS))
-    builder.add_node("grade_documents", grade_documents)
-    builder.add_node("rewrite_question", rewrite_question)
-    builder.add_node("generate_answer", generate_answer)
-    builder.add_node("generate_fallback", generate_fallback)
-    
-    # Add edges for the existing workflow
-    builder.add_edge(START, "generate_query_or_respond")
-    builder.add_conditional_edges(
-        "generate_query_or_respond",
-        tools_condition,
-        {"tools": "retrieve", "__end__": END}
-    )
-    builder.add_edge("retrieve", "grade_documents")
-    builder.add_conditional_edges(
-        "grade_documents",
-        lambda state: "generate_answer" if state.get("relevant_docs", False) else "rewrite_question"
-    )
-    builder.add_edge("rewrite_question", "generate_query_or_respond")
-    builder.add_edge("generate_answer", END)
-    builder.add_edge("generate_fallback", END)
-    
-    # Compile without memory for testing
-    graph = builder.compile()
-    
-    print("✅ Original agent graph compiled successfully")
-    
-    return graph
+    return create_enhanced_agent_graph()
 
 
-# Default export is the enhanced graph with memory
-graph = create_agent_graph()
-
-
-def run_agent(question: str, verbose: bool = True):
-    """
-    Run the agent with a given question.
+def run_agent_locally(question: str, user_id: str = "test-user", verbose: bool = True):
+    """Run the agent locally for testing."""
+    print(f"\n🤖 BargainB Agent - Local Test")
+    print(f"{'='*50}")
     
-    Args:
-        question: The user's question
-        verbose: Whether to print intermediate steps
-        
-    Returns:
-        Final response from the agent
-    """
-    graph = create_agent_graph()
+    # Create the graph
+    graph = create_local_test_graph()
+    if not graph:
+        return "Failed to create graph - check environment setup"
     
-    # Initial state with retry tracking
-    initial_state = {
-        "messages": [{"role": "user", "content": question}],
-        "retry_count": 0
+    # Configure for local testing
+    config = {
+        "configurable": {
+            "thread_id": f"local-test-{user_id}",
+            "user_id": user_id
+        }
     }
     
-    if verbose:
-        print(f"\n🔍 Processing question: {question}\n")
-        print("=" * 60)
-    
     try:
-        final_response = None
-        for chunk in graph.stream(initial_state):
-            for node, update in chunk.items():
-                if verbose:
-                    print(f"\n📍 Update from node: {node}")
-                    if "messages" in update and update["messages"]:
-                        last_message = update["messages"][-1]
-                        if hasattr(last_message, 'pretty_print'):
-                            last_message.pretty_print()
-                        else:
-                            print(f"Content: {last_message.get('content', 'No content')}")
-                    print("-" * 40)
-                
-                # Capture the final response
-                if "messages" in update and update["messages"]:
-                    final_response = update["messages"][-1]
+        if verbose:
+            print(f"💭 Question: {question}")
+            print(f"👤 User ID: {user_id}")
+            print(f"🔧 Running with local configuration...")
+            print("-" * 50)
+        
+        # Run the graph
+        result = graph.invoke(
+            {"messages": [{"role": "user", "content": question}]},
+            config=config
+        )
+        
+        # Extract the final response
+        final_response = result["messages"][-1].content
         
         if verbose:
-            print("=" * 60)
-            print("✅ Agent processing complete\n")
+            print(f"🎯 Response: {final_response}")
+            print("=" * 50)
         
         return final_response
         
     except Exception as e:
         error_msg = f"❌ Error running agent: {e}"
-        print(error_msg)
-        return {"role": "assistant", "content": "I apologize, but I encountered an error while processing your question. Please try again."}
+        if verbose:
+            print(error_msg)
+        return error_msg
 
 
-# For backward compatibility
+# Keep the original functions for backwards compatibility
+def create_agent_graph():
+    """Alias for backwards compatibility."""
+    return create_enhanced_agent_graph()
+
+
+def create_original_graph():
+    """Create the original graph without memory capabilities."""
+    # Import here to avoid circular imports
+    from langchain_openai import ChatOpenAI
+    
+    # Initialize the model
+    model = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+    
+    # Create the state graph
+    builder = StateGraph(EnhancedMessagesState)
+    
+    # Add nodes
+    builder.add_node("generate_query_or_respond", generate_query_or_respond)
+    builder.add_node("product_search", ToolNode(AVAILABLE_TOOLS))
+    builder.add_node("rewrite_question", rewrite_question)
+    builder.add_node("generate_answer", generate_answer)
+    builder.add_node("generate_fallback", generate_fallback)
+    
+    # Add edges
+    builder.add_edge(START, "generate_query_or_respond")
+    builder.add_conditional_edges(
+        "generate_query_or_respond",
+        lambda state: "product_search" if state["messages"][-1].tool_calls else END,
+        {"product_search": "product_search", END: END}
+    )
+    
+    # Product search conditional edges
+    builder.add_conditional_edges(
+        "product_search",
+        grade_documents,
+        {
+            "generate_answer": "generate_answer",
+            "rewrite_question": "rewrite_question", 
+            "generate_fallback": "generate_fallback"
+        }
+    )
+    
+    builder.add_edge("rewrite_question", "generate_query_or_respond")
+    builder.add_edge("generate_answer", END)
+    builder.add_edge("generate_fallback", END)
+    
+    # Compile
+    graph = builder.compile()
+    
+    return graph
+
+
+def run_agent(question: str, verbose: bool = True):
+    """Run the original agent without memory."""
+    graph = create_original_graph()
+    
+    result = graph.invoke({"messages": [{"role": "user", "content": question}]})
+    
+    final_response = result["messages"][-1].content
+    
+    if verbose:
+        print(f"Question: {question}")
+        print(f"Response: {final_response}")
+    
+    return final_response
+
+
 def create_graph():
-    """Legacy function name - use create_agent_graph() instead."""
-    return create_agent_graph()
+    """Simple function to create the default graph."""
+    return create_enhanced_agent_graph()
 
 
 if __name__ == "__main__":
