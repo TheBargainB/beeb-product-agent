@@ -1,7 +1,7 @@
 [project]
 name = "agent"
 version = "0.0.1"
-description = "Starter template for making a new agent LangGraph."
+description = "Enhanced grocery and meal planning agent with memory capabilities using LangGraph."
 authors = [
     { name = "William Fu-Hinthorn", email = "13333726+hinthornw@users.noreply.github.com" },
 ]
@@ -19,6 +19,7 @@ dependencies = [
     "supabase>=2.0.0",
     "pydantic>=2.0.0",
     "openai>=1.0.0",
+    "trustcall>=0.1.0",
 ]
 
 
