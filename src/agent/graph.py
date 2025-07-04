@@ -21,8 +21,8 @@ from .nodes import (
     generate_fallback,
     EnhancedMessagesState
 )
-from .tools import AVAILABLE_TOOLS
-from .memory_tools import SupabaseMemoryManager, UpdateMemory
+from .tools import AVAILABLE_TOOLS, get_tools
+from .memory_tools import SupabaseMemoryManager, UpdateMemory, get_memory_manager
 from .memory_schemas import (
     UserMemory, 
     UserProfile, 
@@ -40,6 +40,11 @@ from .guard_rails import (
     ContentSafetyViolation, 
     CostLimitExceeded
 )
+from .whatsapp_formatter import format_response_for_platform
+
+# Import the LLM
+from langchain.chat_models import init_chat_model
+from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage
 
 
 def validate_environment():
@@ -394,6 +399,14 @@ You are a personalized assistant that remembers information about users and prov
             if hasattr(response, 'usage_metadata') and response.usage_metadata:
                 tokens_used = response.usage_metadata.get('total_tokens', 0)
                 guard_rails.check_cost_limits(user_id, tokens_used=tokens_used, tool_calls=len(response.tool_calls) if response.tool_calls else 0)
+            
+            # Apply WhatsApp formatting if source is WhatsApp
+            source = config.get("configurable", {}).get("source", "general")
+            if source == "whatsapp" and hasattr(response, 'content') and response.content:
+                formatted_content = format_response_for_platform(response.content, "whatsapp")
+                # Create a new message with formatted content
+                from langchain_core.messages import AIMessage
+                response = AIMessage(content=formatted_content, tool_calls=response.tool_calls if hasattr(response, 'tool_calls') else None)
             
             # Store the enhanced memory manager in state for later use
             state["enhanced_memory_manager"] = enhanced_memory_manager

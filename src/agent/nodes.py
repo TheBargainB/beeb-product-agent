@@ -5,7 +5,9 @@ from typing import Literal, TypedDict
 from pydantic import BaseModel, Field
 from langchain.chat_models import init_chat_model
 from langgraph.graph import MessagesState
+from langchain_core.runnables.config import RunnableConfig
 from .tools import AVAILABLE_TOOLS
+from .whatsapp_formatter import format_response_for_platform
 
 # Maximum number of retries before giving up
 MAX_RETRIES = 3
@@ -35,52 +37,45 @@ def generate_query_or_respond(state: EnhancedMessagesState):
 
 
 class GradeDocuments(BaseModel):
-    """Grade documents using a binary score for relevance check."""
-
-    binary_score: str = Field(
-        description="Relevance score: 'yes' if relevant, or 'no' if not relevant"
-    )
-
-
-GRADE_PROMPT = (
-    "You are a grader assessing relevance of retrieved product information to a user question. \n "
-    "Here is the retrieved product information: \n\n {context} \n\n"
-    "Here is the user question: {question} \n"
-    "If the product information contains details that are relevant to answering the user's question "
-    "about products, prices, brands, categories, or specifications, grade it as relevant. \n"
-    "Give a binary score 'yes' or 'no' to indicate whether the product information is relevant to the question."
-)
-
-
-grader_model = init_chat_model("openai:gpt-4o-mini", temperature=0)
+    """Binary score for relevance check on retrieved documents."""
+    binary_score: str = Field(description="Documents are relevant to the question, 'yes' or 'no'")
 
 
 def grade_documents(
     state: EnhancedMessagesState,
 ) -> Literal["generate_answer", "rewrite_question", "generate_fallback"]:
     """
-    Determine whether the retrieved product information is relevant to the question.
-    Includes recursion prevention by tracking retry attempts.
+    Determines whether the retrieved documents are relevant to the question.
+    If any document is not relevant, we will set a flag to run web search.
     """
-    question = state["messages"][0].content
-    context = state["messages"][-1].content
+    print("📊 Checking document relevance...")
     
-    # Get retry count from state, defaulting to 0
+    # Get current retry count
     retry_count = state.get('retry_count', 0)
     
-    # If we've hit the retry limit, generate a fallback response
+    # Check if we've exceeded max retries
     if retry_count >= MAX_RETRIES:
-        print(f"Maximum retries ({MAX_RETRIES}) reached. Generating fallback response.")
+        print(f"⚠️  Max retries ({MAX_RETRIES}) exceeded. Generating fallback response.")
         return "generate_fallback"
     
-    # Check if the context indicates a failed query (empty, error message, etc.)
-    if not context or context.strip() == "" or "error" in context.lower() or "no products found" in context.lower():
-        print(f"Failed query detected. Retry count: {retry_count + 1}")
-        # Return updated state with incremented retry count
-        return "rewrite_question"
+    # Get question and documents
+    question = state["messages"][0].content
+    documents = state["messages"][-1].content
     
-    prompt = GRADE_PROMPT.format(question=question, context=context)
+    # Grade documents
+    GRADE_PROMPT = (
+        "You are a grader assessing the relevance of a retrieved document to a user question. "
+        "Here is the retrieved document: \n\n {document} \n\n"
+        "Here is the user question: {question} \n"
+        "If the document contains keywords related to the user question, grade it as relevant. "
+        "It does not need to be a stringent test. The goal is to filter out erroneous retrievals. "
+        "Give a binary score 'yes' or 'no' score to indicate whether the document is relevant to the question."
+    )
+    
+    grader_model = response_model.with_structured_output(GradeDocuments)
+    
     try:
+        prompt = GRADE_PROMPT.format(document=documents, question=question)
         response = (
             grader_model
             .with_structured_output(GradeDocuments)
@@ -169,7 +164,7 @@ GENERATE_PROMPT = (
 )
 
 
-def generate_answer(state: EnhancedMessagesState):
+def generate_answer(state: EnhancedMessagesState, config: RunnableConfig = None):
     """Generate an answer based on the product information."""
     question = state["messages"][0].content
     context = state["messages"][-1].content
@@ -177,6 +172,16 @@ def generate_answer(state: EnhancedMessagesState):
     
     try:
         response = response_model.invoke([{"role": "user", "content": prompt}])
+        
+        # Apply WhatsApp formatting if source is WhatsApp
+        if config:
+            source = config.get("configurable", {}).get("source", "general")
+            if source == "whatsapp" and hasattr(response, 'content') and response.content:
+                formatted_content = format_response_for_platform(response.content, "whatsapp")
+                # Create a new message with formatted content
+                from langchain_core.messages import AIMessage
+                response = AIMessage(content=formatted_content)
+        
         return {
             "messages": [response],
             "retry_count": 0  # Reset retry count on successful completion
@@ -214,10 +219,16 @@ FALLBACK_PROMPT = (
 )
 
 
-def generate_fallback(state: EnhancedMessagesState):
+def generate_fallback(state: EnhancedMessagesState, config: RunnableConfig = None):
     """Generate a fallback response when retrieval consistently fails."""
     question = state["messages"][0].content
     fallback_content = FALLBACK_PROMPT.format(question=question)
+    
+    # Apply WhatsApp formatting if source is WhatsApp
+    if config:
+        source = config.get("configurable", {}).get("source", "general")
+        if source == "whatsapp":
+            fallback_content = format_response_for_platform(fallback_content, "whatsapp")
     
     return {
         "messages": [{"role": "assistant", "content": fallback_content}],
