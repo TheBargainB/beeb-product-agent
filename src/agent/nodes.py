@@ -7,7 +7,35 @@ from langchain.chat_models import init_chat_model
 from langgraph.graph import MessagesState
 from langchain_core.runnables.config import RunnableConfig
 from .tools import AVAILABLE_TOOLS
-from .whatsapp_formatter import format_response_for_platform
+from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_openai import ChatOpenAI
+from typing import Dict, Any, List, Optional, Union
+import json
+import logging
+from datetime import datetime
+from langgraph.prebuilt import ToolNode
+
+from .memory_tools import (
+    save_user_memory,
+    save_conversation_memory,
+    save_assistant_instruction,
+    update_user_profile,
+    search_memories,
+    get_user_context,
+    get_memory_context,
+    get_user_profile,
+    get_assistant_instructions,
+    get_conversation_history,
+    MemorySearchQuery,
+    ConversationState,
+)
+from .guard_rails import GuardRails
+from .config import AgentConfig, AssistantLanguageConfig
+from .memory_schemas import (
+    AssistantLanguageConfig,
+    LANGUAGE_CONFIGS,
+    get_language_instructions
+)
 
 # Maximum number of retries before giving up
 MAX_RETRIES = 3
@@ -15,6 +43,109 @@ MAX_RETRIES = 3
 # Initialize the chat model
 response_model = init_chat_model("openai:gpt-4o-mini", temperature=0)
 
+logger = logging.getLogger(__name__)
+
+# Enhanced system message with memory context and flexible language configuration
+ENHANCED_SYSTEM_MESSAGE = """You are a helpful assistant named {instance_name} for {customer_name}.
+
+{language_instructions}
+
+🎯 **Your Role:**
+You are a personalized assistant that remembers information about users and provides helpful, contextual responses.
+
+🛠️ **Your Capabilities:**
+1. **Memory Management**: Remember user information, preferences, and past conversations
+2. **Personalized Responses**: Use stored memories to provide relevant, personalized assistance
+3. **Language Flexibility**: Adapt to user's language preferences and cultural context
+4. **Contextual Awareness**: Consider past interactions and user preferences
+
+📊 **Current User Context:**
+{user_context}
+
+📝 **Memory Context:**
+{memory_context}
+
+{platform_formatting_instructions}
+
+🎯 **Instructions:**
+1. **Be Personal**: Use the user's memory context to provide personalized responses
+2. **Remember Information**: When users share personal info, preferences, or important details, consider updating memory
+3. **Be Contextual**: Reference past conversations and user preferences when relevant
+4. **Adapt Communication**: Match the user's preferred communication style and language preferences
+5. **Offer Continuity**: Build on previous conversations and remember ongoing topics
+
+**Memory Update Decision Rules:**
+- 🧑‍💼 Personal information (name, location, job, family) → update profile
+- 💭 Preferences, interests, experiences, goals → save as user memory
+- 💬 Important conversation topics or requests → save as conversation memory
+- ⚙️ User instructions for how I should behave → update assistant instructions
+
+**Response Style:**
+- Be friendly and conversational
+- Use the user's preferred communication style
+- Reference relevant memories when helpful
+- Keep responses concise but informative (max {max_response_length} chars)
+- Respect cultural and language preferences"""
+
+def get_platform_formatting_instructions(source: str) -> str:
+    """Get platform-specific formatting instructions."""
+    if source == "whatsapp":
+        return """
+📱 **WHATSAPP FORMATTING RULES - IMPORTANT:**
+- **NEVER use markdown formatting** like **bold**, *italic*, # headers, or ## subheaders
+- **Use WhatsApp formatting instead:**
+  - For emphasis: Use *bold text* (single asterisks)
+  - For lists: Use • bullet points, not - or *
+  - For headers: Use 🔥 for main topics, 📌 for sections
+  - For recipes: Use 🍽️ for recipe names, 🥘 for ingredients, 👨‍🍳 for instructions
+  - For grocery lists: Use 🛒 for shopping lists, 💰 for costs
+  - For meal plans: Use 🌅 for breakfast, 🌞 for lunch, 🌙 for dinner
+- **Examples of CORRECT WhatsApp formatting:**
+  - Recipe: "🍽️ *Hummus Recipe*" (NOT "# Hummus Recipe")
+  - Ingredients: "🥘 *Ingredients*:" (NOT "## Ingredients:")
+  - Lists: "• 2 cups chickpeas" (NOT "- 2 cups chickpeas")
+  - Instructions: "👨‍🍳 *Instructions*:" (NOT "## Instructions:")
+- **Keep it clean and readable for WhatsApp messaging**"""
+    elif source == "telegram":
+        return """
+💬 **TELEGRAM FORMATTING:**
+- You can use full markdown formatting (Telegram supports it)
+- Use **bold**, *italic*, `code`, [links](url), etc. freely"""
+    else:
+        return """
+🌐 **GENERAL FORMATTING:**
+- Use standard markdown formatting
+- **Bold text**, *italic text*, # Headers, ## Subheaders are all fine"""
+
+def load_assistant_language_config(config: RunnableConfig) -> AssistantLanguageConfig:
+    """Load assistant language configuration from config."""
+    configurable = config.get("configurable", {})
+    
+    # Check if language config is provided
+    language_config = configurable.get("language_config")
+    if language_config:
+        return AssistantLanguageConfig(**language_config)
+    
+    # Check for individual language settings
+    target_language = configurable.get("target_language", "english")
+    enforcement_mode = configurable.get("enforcement_mode", "flexible")
+    
+    # Use predefined config if available
+    if target_language in LANGUAGE_CONFIGS:
+        base_config = LANGUAGE_CONFIGS[target_language]
+        return AssistantLanguageConfig(
+            target_language=target_language,
+            enforcement_mode=enforcement_mode,
+            **base_config
+        )
+    
+    # Default fallback
+    return AssistantLanguageConfig(
+        target_language=target_language,
+        enforcement_mode=enforcement_mode,
+        cultural_context=f"Communicate in {target_language} with appropriate cultural context.",
+        fallback_behavior="Use English if {target_language} is not possible."
+    )
 
 # Enhanced state with retry tracking
 class EnhancedMessagesState(MessagesState):
@@ -164,34 +295,80 @@ GENERATE_PROMPT = (
 )
 
 
-def generate_answer(state: EnhancedMessagesState, config: RunnableConfig = None):
-    """Generate an answer based on the product information."""
-    question = state["messages"][0].content
-    context = state["messages"][-1].content
-    prompt = GENERATE_PROMPT.format(question=question, context=context)
-    
+def generate_answer(state: ConversationState, config: RunnableConfig) -> Dict[str, Any]:
+    """Generate a response using the chat model with tools, memory, and language configuration."""
     try:
-        response = response_model.invoke([{"role": "user", "content": prompt}])
+        # Get the enhanced model with tools
+        enhanced_model = response_model.bind_tools(AVAILABLE_TOOLS, parallel_tool_calls=False)
         
-        # Apply WhatsApp formatting if source is WhatsApp
-        if config:
-            source = config.get("configurable", {}).get("source", "general")
-            if source == "whatsapp" and hasattr(response, 'content') and response.content:
-                formatted_content = format_response_for_platform(response.content, "whatsapp")
-                # Create a new message with formatted content
-                from langchain_core.messages import AIMessage
-                response = AIMessage(content=formatted_content)
+        # Get agent configuration
+        agent_config = AgentConfig.from_config(config)
         
+        # Get user information
+        user_id = agent_config.get_user_id()
+        instance_name = agent_config.get_instance_name()
+        customer_name = agent_config.get_customer_name()
+        max_response_length = agent_config.get_max_response_length()
+        
+        # Get or create user profile
+        user_profile = get_user_profile(user_id, config)
+        
+        # Get recent conversation history with memory context
+        conversation_history = get_conversation_history(user_id, config)
+        
+        # Get current memories
+        user_context = get_user_context(user_id, config)
+        memory_context = get_memory_context(user_id, config)
+        
+        # Load language configuration
+        language_config = load_assistant_language_config(config)
+        language_instructions = get_language_instructions(language_config)
+        
+        # Get platform formatting instructions
+        source = config.get("configurable", {}).get("source", "general")
+        platform_formatting_instructions = get_platform_formatting_instructions(source)
+        
+        # Generate system message with all context
+        system_message = ENHANCED_SYSTEM_MESSAGE.format(
+            instance_name=instance_name,
+            customer_name=customer_name,
+            language_instructions=language_instructions,
+            user_context=user_context,
+            memory_context=memory_context,
+            platform_formatting_instructions=platform_formatting_instructions,
+            max_response_length=max_response_length
+        )
+        
+        # Create the message chain
+        messages = [SystemMessage(content=system_message)] + state["messages"]
+        
+        # Make the LLM call
+        response = enhanced_model.invoke(messages)
+        
+        # Process any tool calls
+        if response.tool_calls:
+            return {
+                "messages": [response],
+                "tool_calls": response.tool_calls,
+                "last_response": response.content if response.content else "",
+                "conversation_complete": False
+            }
+        
+        # No tool calls, conversation is complete
         return {
             "messages": [response],
-            "retry_count": 0  # Reset retry count on successful completion
+            "tool_calls": [],
+            "last_response": response.content,
+            "conversation_complete": True
         }
+        
     except Exception as e:
-        print(f"Error in generate_answer: {e}")
-        fallback_response = "I apologize, but I encountered an error while generating a response. Please try asking your question again."
+        logger.error(f"Error in generate_answer: {str(e)}")
         return {
-            "messages": [{"role": "assistant", "content": fallback_response}],
-            "retry_count": 0
+            "messages": [],
+            "tool_calls": [],
+            "last_response": f"I apologize, but I encountered an error: {str(e)}",
+            "conversation_complete": True
         }
 
 
@@ -219,18 +396,59 @@ FALLBACK_PROMPT = (
 )
 
 
-def generate_fallback(state: EnhancedMessagesState, config: RunnableConfig = None):
-    """Generate a fallback response when retrieval consistently fails."""
-    question = state["messages"][0].content
-    fallback_content = FALLBACK_PROMPT.format(question=question)
-    
-    # Apply WhatsApp formatting if source is WhatsApp
-    if config:
+def generate_fallback(state: ConversationState, config: RunnableConfig) -> Dict[str, Any]:
+    """Generate a fallback response when search fails."""
+    try:
+        # Get agent configuration
+        agent_config = AgentConfig.from_config(config)
+        
+        # Get user information
+        user_id = agent_config.get_user_id()
+        instance_name = agent_config.get_instance_name()
+        customer_name = agent_config.get_customer_name()
+        max_response_length = agent_config.get_max_response_length()
+        
+        # Get current memories for context
+        user_context = get_user_context(user_id, config)
+        memory_context = get_memory_context(user_id, config)
+        
+        # Load language configuration
+        language_config = load_assistant_language_config(config)
+        language_instructions = get_language_instructions(language_config)
+        
+        # Get platform formatting instructions
         source = config.get("configurable", {}).get("source", "general")
-        if source == "whatsapp":
-            fallback_content = format_response_for_platform(fallback_content, "whatsapp")
-    
-    return {
-        "messages": [{"role": "assistant", "content": fallback_content}],
-        "retry_count": 0  # Reset retry count for future queries
-    } 
+        platform_formatting_instructions = get_platform_formatting_instructions(source)
+        
+        # Generate system message with all context
+        system_message = ENHANCED_SYSTEM_MESSAGE.format(
+            instance_name=instance_name,
+            customer_name=customer_name,
+            language_instructions=language_instructions,
+            user_context=user_context,
+            memory_context=memory_context,
+            platform_formatting_instructions=platform_formatting_instructions,
+            max_response_length=max_response_length
+        )
+        
+        # Create the message chain
+        messages = [SystemMessage(content=system_message)] + state["messages"]
+        
+        # Make the LLM call
+        response = response_model.invoke(messages)
+        
+        return {
+            "messages": [response],
+            "tool_calls": [],
+            "last_response": response.content,
+            "conversation_complete": True
+        }
+        
+    except Exception as e:
+        logger.error(f"Error in generate_fallback: {str(e)}")
+        return {
+            "messages": [],
+            "tool_calls": [],
+            "last_response": "I apologize, but I'm having trouble processing your request right now. Please try again later.",
+            "conversation_complete": True
+        } 

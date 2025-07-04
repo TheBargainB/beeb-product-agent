@@ -19,7 +19,10 @@ from .nodes import (
     rewrite_question,
     generate_answer,
     generate_fallback,
-    EnhancedMessagesState
+    EnhancedMessagesState,
+    get_platform_formatting_instructions,
+    load_assistant_language_config,
+    ENHANCED_SYSTEM_MESSAGE
 )
 from .tools import AVAILABLE_TOOLS, get_tools
 from .memory_tools import SupabaseMemoryManager, UpdateMemory, get_memory_manager
@@ -40,7 +43,7 @@ from .guard_rails import (
     ContentSafetyViolation, 
     CostLimitExceeded
 )
-from .whatsapp_formatter import format_response_for_platform
+
 
 # Import the LLM
 from langchain.chat_models import init_chat_model
@@ -260,6 +263,8 @@ You are a personalized assistant that remembers information about users and prov
 📝 **Memory Context:**
 {memory_context}
 
+{platform_formatting_instructions}
+
 🎯 **Instructions:**
 1. **Be Personal**: Use the user's memory context to provide personalized responses
 2. **Remember Information**: When users share personal info, preferences, or important details, consider updating memory
@@ -280,47 +285,7 @@ You are a personalized assistant that remembers information about users and prov
 - Keep responses concise but informative (max {max_response_length} chars)
 - Respect cultural and language preferences"""
 
-    def load_assistant_language_config(config: RunnableConfig) -> AssistantLanguageConfig:
-        """Load language configuration from database or use default."""
-        try:
-            # Get assistant ID from config if available
-            assistant_id = config.get("configurable", {}).get("assistant_id")
-            if not assistant_id:
-                return LANGUAGE_CONFIGS["multilingual_flexible"]
-                
-            # Query the conversations table for assistant configuration
-            result = supabase_client.client.table('conversations').select('assistant_config').eq('assistant_id', assistant_id).order('created_at', desc=True).limit(1).execute()
-            
-            if result.data:
-                assistant_config = result.data[0].get('assistant_config', {})
-                config_data = assistant_config.get("configurable", {})
-                
-                # Check if it's the old Arabic-only format
-                if config_data.get("language") == "arabic" and config_data.get("response_format") == "arabic_only":
-                    return LANGUAGE_CONFIGS["arabic_only"]
-                
-                # Check for new flexible language configuration
-                if config_data.get("language_config"):
-                    return AssistantLanguageConfig(**config_data["language_config"])
-                
-                # Check for simple language specification
-                if config_data.get("language"):
-                    language = config_data["language"].lower()
-                    if language in LANGUAGE_CONFIGS:
-                        return LANGUAGE_CONFIGS[language]
-                    else:
-                        # Create a custom configuration for the specified language
-                        return AssistantLanguageConfig(
-                            primary_language=language,
-                            language_enforcement="strict",
-                            fallback_language="english"
-                        )
-            
-            return LANGUAGE_CONFIGS["multilingual_flexible"]
-            
-        except Exception as e:
-            print(f"Warning: Could not load language config: {e}")
-            return LANGUAGE_CONFIGS["multilingual_flexible"]
+
 
     def enhanced_generate_query_or_respond(state: EnhancedMessagesState, config: RunnableConfig):
         """Enhanced query generation with comprehensive memory context and flexible language configuration."""
@@ -369,13 +334,18 @@ You are a personalized assistant that remembers information about users and prov
             language_config = load_assistant_language_config(config)
             language_instructions = get_language_instructions(language_config)
             
+            # Get platform formatting instructions
+            source = config.get("configurable", {}).get("source", "general")
+            platform_formatting_instructions = get_platform_formatting_instructions(source)
+            
             # Generate system message with all context
-            system_msg = ENHANCED_SYSTEM_MESSAGE.format(
+            system_message = ENHANCED_SYSTEM_MESSAGE.format(
                 instance_name=agent_config.get_instance_name(),
                 customer_name=agent_config.get_customer_name(),
                 language_instructions=language_instructions,
                 user_context=user_context,
                 memory_context=memory_context,
+                platform_formatting_instructions=platform_formatting_instructions,
                 max_response_length=agent_config.get_max_response_length()
             )
             
@@ -393,20 +363,14 @@ You are a personalized assistant that remembers information about users and prov
             enhanced_model = model.bind_tools(all_tools, parallel_tool_calls=False)
             
             # Make the LLM call
-            response = enhanced_model.invoke([SystemMessage(content=system_msg)] + state["messages"])
+            response = enhanced_model.invoke([SystemMessage(content=system_message)] + state["messages"])
             
             # Check cost limits based on token usage
             if hasattr(response, 'usage_metadata') and response.usage_metadata:
                 tokens_used = response.usage_metadata.get('total_tokens', 0)
                 guard_rails.check_cost_limits(user_id, tokens_used=tokens_used, tool_calls=len(response.tool_calls) if response.tool_calls else 0)
             
-            # Apply WhatsApp formatting if source is WhatsApp
-            source = config.get("configurable", {}).get("source", "general")
-            if source == "whatsapp" and hasattr(response, 'content') and response.content:
-                formatted_content = format_response_for_platform(response.content, "whatsapp")
-                # Create a new message with formatted content
-                from langchain_core.messages import AIMessage
-                response = AIMessage(content=formatted_content, tool_calls=response.tool_calls if hasattr(response, 'tool_calls') else None)
+
             
             # Store the enhanced memory manager in state for later use
             state["enhanced_memory_manager"] = enhanced_memory_manager
