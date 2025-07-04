@@ -261,9 +261,10 @@ def main():
     
     # Example: Create customer-specific assistants
     print("\n👥 Example: Creating customer-specific assistants...")
+    print("⚠️  Note: Update sample_customers with real profile IDs from your database")
     sample_customers = [
         {
-            "profile_id": "4c432d3e-0a15-4272-beda-0d327088d5f6",
+            "profile_id": "your-customer-profile-uuid-here",  # Replace with actual UUID from your database
             "name": "Emma",
             "language": "en",
             "stores": ["Albert Heijn"]

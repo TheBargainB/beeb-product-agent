@@ -31,11 +31,11 @@ class AgentConfig:
             raise ValueError(f"Invalid YAML configuration: {e}")
     
     # Customer Profile Methods
-    def get_crm_profile_id(self) -> str:
-        """Get the configured CRM profile ID as string (UUID)."""
+    def get_crm_profile_id(self) -> Optional[str]:
+        """Get the configured CRM profile ID as string (UUID), returns None if not specified."""
         profile_id = self.config.get('customer_profile', {}).get('crm_profile_id')
         if profile_id is None:
-            raise ValueError("crm_profile_id must be specified in customer_profile configuration")
+            return None
         return str(profile_id)
     
     def get_customer_name(self) -> str:
@@ -174,9 +174,12 @@ class AgentConfig:
         """Get local database URL."""
         return self.config.get('local_development', {}).get('local_db_url')
     
-    def get_test_customer_profile_id(self) -> str:
+    def get_test_customer_profile_id(self) -> Optional[str]:
         """Get test customer profile ID."""
-        return self.config.get('local_development', {}).get('test_customer_profile_id', self.get_crm_profile_id())
+        test_id = self.config.get('local_development', {}).get('test_customer_profile_id')
+        if test_id is not None:
+            return str(test_id)
+        return self.get_crm_profile_id()
     
     def is_debug_logging_enabled(self) -> bool:
         """Check if debug logging is enabled."""
@@ -238,7 +241,7 @@ class AgentConfig:
         # Check if profile ID is valid (not empty, looks like UUID)
         try:
             profile_id = self.get_crm_profile_id()
-            validation_results['profile_id_is_valid'] = len(profile_id) > 0
+            validation_results['profile_id_is_valid'] = profile_id is not None and len(profile_id) > 0
         except (ValueError, TypeError):
             validation_results['profile_id_is_valid'] = False
         
@@ -270,13 +273,15 @@ class AgentConfig:
             preferred_stores = ', '.join(self.get_preferred_stores())
             validation = self.validate_configuration()
             
+            profile_display = profile_id if profile_id else "None (General Assistant Mode)"
+            
             summary = f"""
 Multi-Customer Agent Configuration Summary:
 ==========================================
 Customer: {customer_name}
 Instance: {instance_name}
 Environment: {environment}
-CRM Profile ID: {profile_id}
+CRM Profile ID: {profile_display}
 Preferred Stores: {preferred_stores}
 Default Language: {self.get_default_language()}
 Config File: {self.config_path}

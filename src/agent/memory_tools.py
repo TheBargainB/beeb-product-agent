@@ -34,8 +34,11 @@ class SupabaseMemoryManager:
         # Get the configured CRM profile ID
         self.crm_profile_id = self.config.get_crm_profile_id()
         
-        # Validate that the configured profile exists
-        if self.config.should_validate_profile():
+        # Skip validation if no profile ID is configured (general assistant mode)
+        if self.crm_profile_id is None:
+            print("⚠️  No CRM profile ID configured - running in general assistant mode")
+            print("   Customer-specific features (memory, personalization) will be disabled")
+        elif self.config.should_validate_profile():
             self._validate_profile_exists()
         
         # Create Trustcall extractors for different memory types
@@ -81,6 +84,8 @@ class SupabaseMemoryManager:
     # Profile Management
     def get_user_profile(self) -> Optional[Dict[str, Any]]:
         """Retrieve user profile from crm_profiles table"""
+        if self.crm_profile_id is None:
+            return None
         try:
             result = self.supabase.client.table('crm_profiles').select('*').eq('id', self.crm_profile_id).execute()
             
@@ -110,6 +115,8 @@ class SupabaseMemoryManager:
 
     def update_user_profile(self, updates: Dict[str, Any]) -> str:
         """Update user profile in crm_profiles table"""
+        if self.crm_profile_id is None:
+            return "⚠️ Cannot update user profile - no CRM profile ID configured"
         try:
             # Remove None values and prepare update data
             clean_updates = {k: v for k, v in updates.items() if v is not None}
@@ -127,6 +134,8 @@ class SupabaseMemoryManager:
     # Grocery List Management
     def get_grocery_lists(self, status: Optional[str] = None) -> List[Dict[str, Any]]:
         """Retrieve grocery lists from grocery_lists table"""
+        if self.crm_profile_id is None:
+            return []
         try:
             query = self.supabase.client.table('grocery_lists').select('*').eq('crm_profile_id', self.crm_profile_id)
             
@@ -157,6 +166,8 @@ class SupabaseMemoryManager:
 
     def create_grocery_list(self, grocery_list_data: Dict[str, Any]) -> str:
         """Create a new grocery list in grocery_lists table"""
+        if self.crm_profile_id is None:
+            return "⚠️ Cannot create grocery list - no CRM profile ID configured"
         try:
             # Prepare grocery list data
             list_data = {
@@ -186,6 +197,8 @@ class SupabaseMemoryManager:
 
     def update_grocery_list(self, list_id: str, updates: Dict[str, Any]) -> str:
         """Update an existing grocery list"""
+        if self.crm_profile_id is None:
+            return "⚠️ Cannot update grocery list - no CRM profile ID configured"
         try:
             clean_updates = {k: v for k, v in updates.items() if v is not None}
             clean_updates['updated_at'] = datetime.now().isoformat()
@@ -202,6 +215,8 @@ class SupabaseMemoryManager:
     # Meal Plan Management
     def get_meal_plans(self, limit: int = 10) -> List[Dict[str, Any]]:
         """Retrieve meal plans from meal_plans table"""
+        if self.crm_profile_id is None:
+            return []
         try:
             result = self.supabase.client.table('meal_plans').select('''
                 *,
@@ -231,6 +246,8 @@ class SupabaseMemoryManager:
 
     def create_meal_plan(self, meal_plan_data: Dict[str, Any]) -> str:
         """Create a new meal plan in meal_plans table"""
+        if self.crm_profile_id is None:
+            return "⚠️ Cannot create meal plan - no CRM profile ID configured"
         try:
             plan_data = {
                 'id': str(uuid.uuid4()),
@@ -260,6 +277,8 @@ class SupabaseMemoryManager:
     # Budget Management
     def get_active_budget(self) -> Optional[Dict[str, Any]]:
         """Get active budget period with categories"""
+        if self.crm_profile_id is None:
+            return None
         try:
             result = self.supabase.client.table('budget_periods').select('''
                 *,
@@ -297,6 +316,8 @@ class SupabaseMemoryManager:
 
     def create_budget_period(self, budget_data: Dict[str, Any]) -> str:
         """Create a new budget period with categories"""
+        if self.crm_profile_id is None:
+            return "⚠️ Cannot create budget period - no CRM profile ID configured"
         try:
             # First create the budget period
             period_id = str(uuid.uuid4())
@@ -348,6 +369,9 @@ class SupabaseMemoryManager:
     # Context Formatting
     def format_user_context(self) -> str:
         """Format all user memory context for the model"""
+        if self.crm_profile_id is None:
+            return "Running in general assistant mode - no customer-specific context available."
+        
         profile = self.get_user_profile()
         grocery_lists = self.get_grocery_lists(status='active')
         meal_plans = self.get_meal_plans(limit=5)
@@ -408,6 +432,8 @@ class SupabaseMemoryManager:
     # Memory Update Methods using Trustcall
     def update_profile_memory(self, messages: List) -> str:
         """Update user profile using conversation context"""
+        if self.crm_profile_id is None:
+            return "⚠️ Cannot update profile memory - no CRM profile ID configured"
         try:
             # Get existing profile
             existing_profile = self.get_user_profile()
@@ -438,6 +464,8 @@ class SupabaseMemoryManager:
 
     def update_grocery_memory(self, messages: List) -> str:
         """Update grocery lists using conversation context"""
+        if self.crm_profile_id is None:
+            return "⚠️ Cannot update grocery memory - no CRM profile ID configured"
         try:
             # Create instruction for grocery list extraction
             instruction = "Extract grocery list information from the conversation. Create or update grocery lists with specific products:"
@@ -457,6 +485,8 @@ class SupabaseMemoryManager:
 
     def update_meal_memory(self, messages: List) -> str:
         """Update meal plans using conversation context"""
+        if self.crm_profile_id is None:
+            return "⚠️ Cannot update meal memory - no CRM profile ID configured"
         try:
             # Create instruction for meal plan extraction
             instruction = "Extract meal planning information from the conversation. Create meal plans with dates and details:"
@@ -476,6 +506,8 @@ class SupabaseMemoryManager:
 
     def update_budget_memory(self, messages: List) -> str:
         """Update budget using conversation context"""
+        if self.crm_profile_id is None:
+            return "⚠️ Cannot update budget memory - no CRM profile ID configured"
         try:
             # Check if there's already an active budget
             existing_budget = self.get_active_budget()

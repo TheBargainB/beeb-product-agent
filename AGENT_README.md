@@ -50,7 +50,35 @@ SUPABASE_ANON_KEY=your_supabase_anon_key_here
 
 The Supabase keys are available in your `supabase.md` file.
 
-### 3. Test the Setup
+### 3. Configuration Modes
+
+The agent supports two operation modes, configured in `config.yaml`:
+
+#### General Assistant Mode (Default)
+```yaml
+customer_profile:
+  crm_profile_id: null  # Set to null
+```
+- Works without customer-specific features
+- Memory and personalization are disabled
+- No database validation required
+
+#### Customer-Specific Mode
+```yaml
+customer_profile:
+  crm_profile_id: "your-customer-uuid-here"  # Set to valid UUID
+```
+- Provides personalized experience with memory
+- Requires valid customer profile in database
+- Enables all customer-specific features
+
+**To set up customer-specific mode:**
+1. Query your database: `SELECT id, preferred_name, full_name FROM crm_profiles;`
+2. Copy the UUID of the customer you want to configure
+3. Replace `null` with the UUID string in quotes in `config.yaml`
+4. Deploy or restart the agent
+
+### 4. Test the Setup
 
 ```bash
 python test_agent.py

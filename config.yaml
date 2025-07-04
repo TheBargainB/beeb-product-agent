@@ -1,11 +1,29 @@
 # Multi-Customer Agent Configuration
 # This file allows you to configure which customer profile this agent instance will serve
+#
+# CONFIGURATION MODES:
+# 1. General Assistant Mode (default):
+#    - Set crm_profile_id to null
+#    - Agent works without customer-specific features
+#    - Memory and personalization features are disabled
+#
+# 2. Customer-Specific Mode:
+#    - Set crm_profile_id to a valid UUID from your crm_profiles table
+#    - Agent provides personalized experience with memory
+#    - Requires valid customer profile in database
+#
+# To set up customer-specific mode:
+# 1. Query your database: SELECT id, preferred_name, full_name FROM crm_profiles;
+# 2. Copy the UUID of the customer you want to configure
+# 3. Replace 'null' with the UUID string in quotes
+# 4. Deploy with the configuration
 
 # Customer Profile Configuration
 customer_profile:
-  # CRM Profile ID from the database (required)
+  # CRM Profile ID from the database (optional)
+  # Set to null for general assistant mode, or specify a UUID for customer-specific mode
   # You can find available profile IDs by querying: SELECT id, preferred_name, full_name FROM crm_profiles;
-  crm_profile_id: "4c432d3e-0a15-4272-beda-0d327088d5f6"  # Example UUID from your database
+  crm_profile_id: null  # Set to UUID string for customer-specific mode
   
   # Customer-specific settings
   customer_name: "Test Customer"  # Friendly name for this customer
@@ -239,7 +257,7 @@ local_development:
   local_db_url: null
   
   # Testing settings
-  test_customer_profile_id: "4c432d3e-0a15-4272-beda-0d327088d5f6"
+  test_customer_profile_id: null  # Set to UUID string for testing with specific customer
   enable_debug_logging: true
   simulate_slow_responses: false
   
