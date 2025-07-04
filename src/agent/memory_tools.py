@@ -10,8 +10,12 @@ from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage, merge_message_runs
 
 from .memory_schemas import (
-    UserProfile, GroceryListProduct, GroceryList, MealPlan, Recipe,
-    BudgetPeriod, BudgetCategory, BudgetExpense
+    UserProfile,
+    GroceryList,
+    Recipe,
+    MealPlan,
+    BudgetPeriod,
+    BudgetExpense
 )
 from .supabase_client import SupabaseClient
 from .config import get_config
@@ -48,25 +52,29 @@ class SupabaseMemoryManager:
             tool_choice="UserProfile"
         )
         
+        # Create grocery and meal planning extractors
         self.grocery_extractor = create_extractor(
             model,
             tools=[GroceryList],
-            tool_choice="GroceryList",
-            enable_inserts=True
+            tool_choice="GroceryList"
         )
         
-        self.meal_extractor = create_extractor(
+        self.recipe_extractor = create_extractor(
+            model,
+            tools=[Recipe],
+            tool_choice="Recipe"
+        )
+        
+        self.meal_plan_extractor = create_extractor(
             model,
             tools=[MealPlan],
-            tool_choice="MealPlan",
-            enable_inserts=True
+            tool_choice="MealPlan"
         )
         
         self.budget_extractor = create_extractor(
             model,
-            tools=[BudgetPeriod, BudgetCategory],
-            tool_choice="BudgetPeriod",
-            enable_inserts=True
+            tools=[BudgetPeriod],
+            tool_choice="BudgetPeriod"
         )
 
     def _validate_profile_exists(self) -> None:
@@ -547,27 +555,78 @@ class SupabaseMemoryManager:
             
         except Exception as e:
             return f"❌ Error updating grocery memory: {e}"
-
-    def update_meal_memory(self, messages: List) -> str:
+    
+    def update_meal_plan_memory(self, messages: List) -> str:
         """Update meal plans using conversation context"""
         if self.crm_profile_id is None:
-            return "⚠️ Cannot update meal memory - no CRM profile ID configured"
+            return "⚠️ Cannot update meal plan memory - no CRM profile ID configured"
         try:
             # Create instruction for meal plan extraction
-            instruction = "Extract meal planning information from the conversation. Create meal plans with dates and details:"
+            instruction = "Extract meal planning information from the conversation. Create or update meal plans with specific dates and meals:"
             updated_messages = [SystemMessage(content=instruction)] + messages[:-1]
             
             # Use Trustcall to extract meal plan
-            result = self.meal_extractor.invoke({"messages": updated_messages})
+            result = self.meal_plan_extractor.invoke({"messages": updated_messages})
             
             if result["responses"]:
-                meal_data = result["responses"][0].model_dump()
-                return self.create_meal_plan(meal_data)
+                meal_plan_data = result["responses"][0].model_dump()
+                return self.create_meal_plan(meal_plan_data)
             
-            return "No meal planning information extracted from conversation"
+            return "No meal plan information extracted from conversation"
             
         except Exception as e:
-            return f"❌ Error updating meal memory: {e}"
+            return f"❌ Error updating meal plan memory: {e}"
+    
+    def update_recipe_memory(self, messages: List) -> str:
+        """Update recipes using conversation context"""
+        if self.crm_profile_id is None:
+            return "⚠️ Cannot update recipe memory - no CRM profile ID configured"
+        try:
+            # Create instruction for recipe extraction
+            instruction = "Extract recipe information from the conversation. Create or update recipes with ingredients and instructions:"
+            updated_messages = [SystemMessage(content=instruction)] + messages[:-1]
+            
+            # Use Trustcall to extract recipe
+            result = self.recipe_extractor.invoke({"messages": updated_messages})
+            
+            if result["responses"]:
+                recipe_data = result["responses"][0].model_dump()
+                return self.create_recipe(recipe_data)
+            
+            return "No recipe information extracted from conversation"
+            
+        except Exception as e:
+            return f"❌ Error updating recipe memory: {e}"
+    
+    def create_recipe(self, recipe_data: Dict[str, Any]) -> str:
+        """Create a new recipe in recipes table"""
+        try:
+            recipe_id = str(uuid.uuid4())
+            data = {
+                'id': recipe_id,
+                'name': recipe_data.get('name'),
+                'ingredients': recipe_data.get('ingredients', []),
+                'instructions': recipe_data.get('instructions', []),
+                'prep_time_minutes': recipe_data.get('prep_time_minutes'),
+                'cook_time_minutes': recipe_data.get('cook_time_minutes'),
+                'servings': recipe_data.get('servings'),
+                'difficulty': recipe_data.get('difficulty', 'medium'),
+                'dietary_tags': recipe_data.get('dietary_tags', []),
+                'estimated_cost': recipe_data.get('estimated_cost'),
+                'created_at': datetime.now().isoformat(),
+                'updated_at': datetime.now().isoformat()
+            }
+            
+            result = self.supabase.client.table('recipes').insert(data).execute()
+            
+            if result.data:
+                return f"✅ Created recipe: {data['name']}"
+            else:
+                return "❌ Failed to create recipe"
+        except Exception as e:
+            return f"❌ Error creating recipe: {e}"
+
+
 
     def update_budget_memory(self, messages: List) -> str:
         """Update budget using conversation context"""

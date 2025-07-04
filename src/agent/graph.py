@@ -24,8 +24,8 @@ from .nodes import (
     load_assistant_language_config,
     ENHANCED_SYSTEM_MESSAGE
 )
-from .tools import AVAILABLE_TOOLS, get_tools
-from .memory_tools import SupabaseMemoryManager, UpdateMemory, get_memory_manager
+from .tools import AVAILABLE_TOOLS
+from .memory_tools import SupabaseMemoryManager, UpdateMemory
 from .memory_schemas import (
     UserMemory, 
     UserProfile, 

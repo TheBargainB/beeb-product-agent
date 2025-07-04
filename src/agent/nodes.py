@@ -16,26 +16,22 @@ from datetime import datetime
 from langgraph.prebuilt import ToolNode
 
 from .memory_tools import (
-    save_user_memory,
-    save_conversation_memory,
-    save_assistant_instruction,
-    update_user_profile,
-    search_memories,
-    get_user_context,
-    get_memory_context,
-    get_user_profile,
-    get_assistant_instructions,
-    get_conversation_history,
-    MemorySearchQuery,
-    ConversationState,
+    SupabaseMemoryManager
 )
 from .guard_rails import GuardRails
-from .config import AgentConfig, AssistantLanguageConfig
+from .config import AgentConfig
 from .memory_schemas import (
     AssistantLanguageConfig,
     LANGUAGE_CONFIGS,
     get_language_instructions
 )
+
+# Define ConversationState type for enhanced memory functions
+class ConversationState(MessagesState):
+    """Extended MessagesState with additional fields for conversation management."""
+    tool_calls: List[Any] = []
+    last_response: str = ""
+    conversation_complete: bool = False
 
 # Maximum number of retries before giving up
 MAX_RETRIES = 3
@@ -310,15 +306,9 @@ def generate_answer(state: ConversationState, config: RunnableConfig) -> Dict[st
         customer_name = agent_config.get_customer_name()
         max_response_length = agent_config.get_max_response_length()
         
-        # Get or create user profile
-        user_profile = get_user_profile(user_id, config)
-        
-        # Get recent conversation history with memory context
-        conversation_history = get_conversation_history(user_id, config)
-        
-        # Get current memories
-        user_context = get_user_context(user_id, config)
-        memory_context = get_memory_context(user_id, config)
+        # Simplified context - for now just use basic information
+        user_context = f"User ID: {user_id}"
+        memory_context = "No specific memory context available"
         
         # Load language configuration
         language_config = load_assistant_language_config(config)
@@ -408,9 +398,9 @@ def generate_fallback(state: ConversationState, config: RunnableConfig) -> Dict[
         customer_name = agent_config.get_customer_name()
         max_response_length = agent_config.get_max_response_length()
         
-        # Get current memories for context
-        user_context = get_user_context(user_id, config)
-        memory_context = get_memory_context(user_id, config)
+        # Simplified context - for now just use basic information
+        user_context = f"User ID: {user_id}"
+        memory_context = "No specific memory context available"
         
         # Load language configuration
         language_config = load_assistant_language_config(config)

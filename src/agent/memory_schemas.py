@@ -2,7 +2,7 @@
 
 from typing import List, Optional, Literal, Dict, Any
 from pydantic import BaseModel, Field
-from datetime import datetime
+from datetime import datetime, date
 
 
 class AssistantLanguageConfig(BaseModel):
@@ -131,6 +131,216 @@ class AssistantInstructions(BaseModel):
     restrictions: List[str] = Field(
         default_factory=list,
         description="Things the assistant should not do or discuss"
+    )
+
+
+# Grocery-specific schemas for Trustcall extractors
+class GroceryListProduct(BaseModel):
+    """A product in a grocery list."""
+    name: str = Field(
+        description="Name of the product (e.g., 'Spinach', 'Organic Milk', 'Whole Wheat Bread')"
+    )
+    quantity: int = Field(
+        default=1,
+        description="Quantity needed (e.g., 2 for '2 bags of spinach')"
+    )
+    unit: str = Field(
+        default="pieces",
+        description="Unit of measurement (e.g., 'kg', 'liters', 'pieces', 'bags', 'bottles')"
+    )
+    category: Optional[str] = Field(
+        default=None,
+        description="Product category (e.g., 'vegetables', 'dairy', 'meat', 'pantry')"
+    )
+    notes: Optional[str] = Field(
+        default=None,
+        description="Additional notes or specifications (e.g., 'organic', 'fresh', 'brand preference')"
+    )
+    estimated_price: Optional[float] = Field(
+        default=None,
+        description="Estimated price in EUR"
+    )
+    priority: Literal["low", "medium", "high"] = Field(
+        default="medium",
+        description="Priority level for this item"
+    )
+
+
+class GroceryList(BaseModel):
+    """A grocery shopping list."""
+    list_name: str = Field(
+        description="Name of the grocery list (e.g., 'Weekly Groceries', 'Dinner Party Shopping')"
+    )
+    products: List[GroceryListProduct] = Field(
+        description="List of products to buy"
+    )
+    preferred_store: Optional[str] = Field(
+        default=None,
+        description="Preferred store for shopping (e.g., 'Albert Heijn', 'Jumbo', 'Dirk')"
+    )
+    shopping_date: Optional[date] = Field(
+        default=None,
+        description="Planned shopping date"
+    )
+    estimated_total: Optional[float] = Field(
+        default=None,
+        description="Estimated total cost in EUR"
+    )
+    status: Literal["active", "completed", "cancelled"] = Field(
+        default="active",
+        description="Status of the grocery list"
+    )
+    is_template: bool = Field(
+        default=False,
+        description="Whether this is a template list for recurring shopping"
+    )
+
+
+class Recipe(BaseModel):
+    """A recipe with ingredients and instructions."""
+    name: str = Field(
+        description="Name of the recipe (e.g., 'Vegetarian Pasta', 'Chicken Curry')"
+    )
+    ingredients: List[str] = Field(
+        description="List of ingredients needed"
+    )
+    instructions: List[str] = Field(
+        description="Cooking instructions step by step"
+    )
+    prep_time_minutes: Optional[int] = Field(
+        default=None,
+        description="Preparation time in minutes"
+    )
+    cook_time_minutes: Optional[int] = Field(
+        default=None,
+        description="Cooking time in minutes"
+    )
+    servings: Optional[int] = Field(
+        default=None,
+        description="Number of servings"
+    )
+    difficulty: Literal["easy", "medium", "hard"] = Field(
+        default="medium",
+        description="Difficulty level"
+    )
+    dietary_tags: List[str] = Field(
+        default_factory=list,
+        description="Dietary tags (e.g., 'vegetarian', 'gluten-free', 'low-carb')"
+    )
+    estimated_cost: Optional[float] = Field(
+        default=None,
+        description="Estimated cost in EUR"
+    )
+
+
+class MealPlan(BaseModel):
+    """A meal plan for a specific date and meal type."""
+    plan_name: Optional[str] = Field(
+        default=None,
+        description="Name of the meal plan (e.g., 'Weekly Meal Plan', 'Dinner Party Menu')"
+    )
+    meal_date: date = Field(
+        description="Date for the meal"
+    )
+    meal_type: Literal["breakfast", "lunch", "dinner", "snack"] = Field(
+        description="Type of meal"
+    )
+    recipe_id: Optional[str] = Field(
+        default=None,
+        description="ID of the recipe if using existing recipe"
+    )
+    custom_meal_name: Optional[str] = Field(
+        default=None,
+        description="Custom meal name if not using a recipe"
+    )
+    planned_servings: int = Field(
+        default=1,
+        description="Number of servings planned"
+    )
+    notes: Optional[str] = Field(
+        default=None,
+        description="Additional notes or modifications"
+    )
+    estimated_cost: Optional[float] = Field(
+        default=None,
+        description="Estimated cost in EUR"
+    )
+
+
+class BudgetCategory(BaseModel):
+    """A budget category for expense tracking."""
+    category_name: str = Field(
+        description="Name of the budget category (e.g., 'Groceries', 'Household Items', 'Treats')"
+    )
+    allocated_amount: float = Field(
+        description="Amount allocated to this category in EUR"
+    )
+    spent_amount: float = Field(
+        default=0.0,
+        description="Amount already spent in this category in EUR"
+    )
+    category_type: Literal["groceries", "household", "other"] = Field(
+        description="Type of category"
+    )
+    priority_level: int = Field(
+        default=1,
+        description="Priority level (1=highest, 5=lowest)"
+    )
+    is_flexible: bool = Field(
+        default=True,
+        description="Whether this category budget can be adjusted"
+    )
+
+
+class BudgetPeriod(BaseModel):
+    """A budget period with categories."""
+    period_name: str = Field(
+        description="Name of the budget period (e.g., 'January 2024', 'Weekly Budget')"
+    )
+    period_type: Literal["weekly", "monthly", "yearly"] = Field(
+        description="Type of budget period"
+    )
+    start_date: date = Field(
+        description="Start date of the budget period"
+    )
+    end_date: date = Field(
+        description="End date of the budget period"
+    )
+    total_budget: float = Field(
+        description="Total budget amount in EUR"
+    )
+    categories: List[BudgetCategory] = Field(
+        default_factory=list,
+        description="Budget categories within this period"
+    )
+    currency: str = Field(
+        default="EUR",
+        description="Currency for the budget"
+    )
+
+
+class BudgetExpense(BaseModel):
+    """A budget expense entry."""
+    expense_name: str = Field(
+        description="Name or description of the expense"
+    )
+    amount: float = Field(
+        description="Amount spent in EUR"
+    )
+    category: str = Field(
+        description="Budget category this expense belongs to"
+    )
+    expense_date: date = Field(
+        default_factory=date.today,
+        description="Date of the expense"
+    )
+    store_name: Optional[str] = Field(
+        default=None,
+        description="Name of the store where expense occurred"
+    )
+    notes: Optional[str] = Field(
+        default=None,
+        description="Additional notes about the expense"
     )
 
 
