@@ -146,12 +146,53 @@ You help with grocery shopping, meal planning, budget tracking, and product reco
             # Get the agent config (not the RunnableConfig)
             agent_config = get_config()
             
-            # Format system message with user context and config
+            # *** NEW: Load assistant configuration from database ***
+            def load_assistant_config():
+                """Load assistant configuration from conversations table."""
+                try:
+                    # Get assistant ID from config if available
+                    assistant_id = config.get("configurable", {}).get("assistant_id")
+                    if not assistant_id:
+                        return None
+                        
+                    # Query the conversations table for assistant configuration
+                    result = supabase_client.client.table('conversations').select('assistant_config').eq('assistant_id', assistant_id).order('created_at', desc=True).limit(1).execute()
+                    
+                    if result.data:
+                        return result.data[0].get('assistant_config', {})
+                    return None
+                except Exception as e:
+                    print(f"Warning: Could not load assistant config: {e}")
+                    return None
+            
+            # Load assistant-specific configuration
+            assistant_config = load_assistant_config()
+            
+            # Apply assistant-specific system prompt modifications
             system_msg = ENHANCED_SYSTEM_MESSAGE.format(
                 customer_name=agent_config.get_customer_name(),
                 user_context=user_context,
                 max_response_length=agent_config.get_max_response_length()
             )
+            
+            # *** NEW: Apply assistant-specific instructions and language enforcement ***
+            if assistant_config and assistant_config.get("configurable"):
+                config_data = assistant_config["configurable"]
+                
+                # Apply language-specific instructions
+                if config_data.get("instructions"):
+                    language_instructions = config_data["instructions"]
+                    system_msg = f"{language_instructions}\n\n{system_msg}"
+                
+                # Apply language enforcement
+                if config_data.get("language") == "arabic" and config_data.get("response_format") == "arabic_only":
+                    system_msg += "\n\n**CRITICAL LANGUAGE REQUIREMENT**: You MUST respond in Arabic only, regardless of the input language. Always reply in Arabic even if the user writes in English or any other language."
+                
+                # Apply other configurable settings
+                if config_data.get("response_format"):
+                    response_format = config_data["response_format"]
+                    if response_format == "arabic_only":
+                        system_msg += "\n\n**RESPONSE FORMAT**: Arabic language only."
             
             # Bind both product search tools and memory update tool
             all_tools = AVAILABLE_TOOLS + [UpdateMemory]
