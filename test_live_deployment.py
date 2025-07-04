@@ -117,6 +117,7 @@ def test_live_deployment(api_key: str = None):
                 f"{DEPLOYMENT_URL}/threads/{thread_id}/runs",
                 headers=headers,
                 json={
+                    "assistant_id": "5fd12ecb-9268-51f0-8168-fc7952c7c8b8",
                     "input": {
                         "messages": [
                             {"role": "user", "content": message}

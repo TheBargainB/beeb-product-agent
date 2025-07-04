@@ -1,32 +1,27 @@
 # Multi-Customer Agent Configuration
-# This file allows you to configure which customer profile this agent instance will serve
+# This file contains the general configuration for the BargainB agent.
+# The same agent codebase is used to create multiple assistant instances,
+# each configured with different customer profile IDs at runtime.
 #
-# CONFIGURATION MODES:
-# 1. General Assistant Mode (default):
-#    - Set crm_profile_id to null
-#    - Agent works without customer-specific features
-#    - Memory and personalization features are disabled
+# ARCHITECTURE:
+# 1. This YAML config contains general/default settings only
+# 2. Customer profile IDs are passed via configurable parameters when creating/using assistants
+# 3. Each assistant instance can serve a different customer without code changes
 #
-# 2. Customer-Specific Mode:
-#    - Set crm_profile_id to a valid UUID from your crm_profiles table
-#    - Agent provides personalized experience with memory
-#    - Requires valid customer profile in database
+# CUSTOMER-SPECIFIC CONFIGURATION:
+# Customer profile IDs are passed at runtime in the configurable parameters:
+# config = {"configurable": {"customer_profile_id": "uuid-string-here"}}
 #
-# To set up customer-specific mode:
-# 1. Query your database: SELECT id, preferred_name, full_name FROM crm_profiles;
-# 2. Copy the UUID of the customer you want to configure
-# 3. Replace 'null' with the UUID string in quotes
-# 4. Deploy with the configuration
+# This allows the same agent to serve multiple customers with personalized experiences.
 
 # Customer Profile Configuration
 customer_profile:
-  # CRM Profile ID from the database (optional)
-  # Set to null for general assistant mode, or specify a UUID for customer-specific mode
-  # You can find available profile IDs by querying: SELECT id, preferred_name, full_name FROM crm_profiles;
-  crm_profile_id: null  # Set to UUID string for customer-specific mode
+  # CRM Profile ID is passed at runtime via configurable parameters
+  # This YAML config should remain general (null = no hardcoded customer)
+  crm_profile_id: null  # Always null - customer ID comes from runtime config
   
-  # Customer-specific settings
-  customer_name: "Test Customer"  # Friendly name for this customer
+  # General settings (not customer-specific)
+  customer_name: "Customer"  # Generic name - real name comes from customer profile
   instance_name: "BargainB Personal Grocery Assistant"
   instance_description: "Personal grocery shopping and meal planning assistant"
   
@@ -58,9 +53,33 @@ database:
   # Memory storage settings
   use_supabase_directly: true      # Use Supabase tables directly (not LangGraph store)
   enable_cross_thread_memory: true # Enable memory across conversations
+  validate_connections: true
+  connection_pool_size: 10
+  timeout_seconds: 30
 
 # Agent Behavior Configuration
 agent:
+  name: "Personal Grocery Assistant"
+  description: "AI-powered grocery shopping assistant with personalized recommendations"
+  customer_name: "Grocery Assistant"
+  crm_profile_id: null  # ⚠️ IMPORTANT: Always keep this as null in the config file
+  
+  # Why null? Because this agent serves multiple customers:
+  # - Customer profile IDs are passed at runtime via configurable parameters
+  # - Each assistant instance gets its own customer_profile_id when invoked
+  # - This allows the same codebase to serve multiple customers with personalized experiences
+  
+  # Example usage:
+  # config = {
+  #   "configurable": {
+  #     "customer_profile_id": "4c432d3e-0a15-4272-beda-0d327088d5f6"
+  #   }
+  # }
+  
+  max_response_length: 2000
+  graceful_degradation: true   # Re-enabled after fixing the bug
+  validate_profile: false  # Set to true in production to validate customer profiles
+  
   # Memory management settings
   enable_memory_updates: true
   memory_update_threshold: 0.7  # Confidence threshold for updating memory
@@ -77,7 +96,6 @@ agent:
   suggest_alternatives: true
   
   # Response settings
-  max_response_length: 2000
   include_price_estimates: true
   suggest_recipes_for_ingredients: true
   
@@ -86,46 +104,81 @@ agent:
     - "Dutch"
     - "English"
 
+# Grocery Assistant Features
+grocery_assistant:
+  capabilities:
+    - "Product search across Dutch supermarkets (Albert Heijn, Jumbo, Dirk)"
+    - "Personalized recommendations based on dietary restrictions"
+    - "Budget tracking and optimization"
+    - "Meal planning and recipe suggestions"
+    - "Smart grocery list management"
+    - "Price comparison across stores"
+    - "Store location recommendations"
+  
+  supported_personas:
+    - healthHero: "Health-focused, prefers organic and nutritious options"
+    - ecoShopper: "Environmentally conscious, prefers sustainable products"
+    - sensitiveStomach: "Has sensitive stomach, needs gentle foods"
+    - budgetSaver: "Budget-conscious, looks for deals and value"
+    - convenienceShopper: "Values convenience, prefers quick solutions"
+  
+  default_stores:
+    - "Albert Heijn"
+    - "Jumbo"
+    - "Dirk"
+  
+  currency: "EUR"
+  
+  # Customer Profile Fields Used by the Assistant
+  profile_fields:
+    - preferred_stores: "Customer's preferred supermarket chains"
+    - dietary_restrictions: "Allergies, dietary needs, food restrictions"
+    - shopping_persona: "Shopping style and preferences"
+    - budget_range: "Weekly/monthly budget constraints"
+    - price_sensitivity: "How important price is (high/medium/low)"
+    - product_interests: "Preferred product categories"
+    - shopping_frequency: "How often they shop (daily/weekly/monthly)"
+    - communication_style: "How they prefer to communicate (formal/casual)"
+
+# Memory and Context Configuration
+memory:
+  enable_memory: true
+  memory_types:
+    - user_profiles: "Customer preferences and personal information"
+    - grocery_lists: "Active and completed shopping lists"
+    - meal_plans: "Planned meals and recipes"
+    - budget_tracking: "Budget periods and spending categories"
+  
+  context_sections:
+    - customer_profile: "Personalized preferences and restrictions"
+    - current_lists: "Active grocery lists and shopping plans"
+    - upcoming_meals: "Planned meals requiring ingredients"
+    - budget_status: "Current budget and spending summary"
+
 # Production Guard Rails Configuration
 guard_rails:
-  # Rate Limiting
+  enabled: true
   rate_limiting:
-    enabled: true
-    requests_per_minute: 30        # Max requests per user per minute
-    requests_per_hour: 200         # Max requests per user per hour
-    requests_per_day: 1000         # Max requests per user per day
-    burst_allowance: 5             # Allow short bursts
-    cooldown_period_seconds: 60    # Cooldown after hitting limit
+    requests_per_minute: 30
+    requests_per_hour: 200
+    requests_per_day: 1000
   
-  # Content Safety
   content_safety:
     enabled: true
-    max_message_length: 500        # Max input message length
-    min_message_length: 1          # Min input message length
-    profanity_filter: true         # Filter inappropriate content
-    spam_detection: true           # Detect spam/repeated messages
-    injection_protection: true     # Protect against prompt injection
-    blocked_patterns:              # Patterns to block
-      - "ignore previous"
-      - "disregard instructions"
-      - "system prompt"
-      - "jailbreak"
-    
-  # Cost Controls
-  cost_controls:
-    enabled: true
-    max_tokens_per_request: 4000   # Max tokens per LLM request
-    max_tokens_per_user_hour: 20000 # Max tokens per user per hour
-    max_database_queries_per_request: 10 # Max DB queries per request
-    max_tool_calls_per_request: 5  # Max tool calls per request
-    alert_on_high_usage: true      # Alert on unusual usage patterns
+    inappropriate_content_filter: true
+    personal_info_protection: true
+  
+  cost_limits:
+    max_tokens_per_request: 4000
+    max_daily_cost: 10.00
+    currency: "USD"
   
   # Error Handling & Resilience
   error_handling:
     enabled: true
     max_retries: 3                 # Max retries for failed operations
     retry_delay_seconds: 1         # Delay between retries
-    graceful_degradation: true     # Provide basic responses on errors
+    graceful_degradation: true     # Re-enabled after fixing the bug
     fallback_responses: true       # Use fallback responses when needed
     timeout_seconds: 30            # Request timeout
     circuit_breaker: true          # Circuit breaker for failing services
@@ -263,4 +316,79 @@ local_development:
   
   # Mock data settings
   use_mock_pricing_data: false
-  mock_customer_data: false 
+  mock_customer_data: false
+
+# Tools Configuration
+tools:
+  product_search:
+    enabled: true
+    max_results: 20
+    include_prices: true
+    include_availability: true
+    supported_stores: ["Albert Heijn", "Jumbo", "Dirk"]
+  
+  memory_management:
+    enabled: true
+    auto_save: true
+    update_threshold: 3  # Update memory after 3 relevant messages
+
+# Example Customer Configurations
+# These are examples of how customer profiles are structured in the database
+examples:
+  customer_profile_example:
+    id: "4c432d3e-0a15-4272-beda-0d327088d5f6"
+    name: "Sarah Johnson"
+    preferences:
+      preferred_stores: ["Albert Heijn", "Jumbo"]
+      dietary_restrictions: ["gluten-free", "lactose-intolerant"]
+      shopping_persona: "healthHero"
+      budget_range: "[80,120]"  # €80-120 per week
+      price_sensitivity: "medium"
+      product_interests: ["organic foods", "fresh vegetables", "lean proteins"]
+      shopping_frequency: "weekly"
+      communication_style: "casual"
+  
+  runtime_usage_example:
+    description: "How to use the assistant with customer configuration"
+    code: |
+      # When creating/using an assistant instance:
+      config = {
+        "configurable": {
+          "customer_profile_id": "4c432d3e-0a15-4272-beda-0d327088d5f6",
+          "user_id": "user_123"
+        }
+      }
+      
+      # The assistant will automatically:
+      # 1. Load customer preferences from the database
+      # 2. Personalize recommendations based on dietary restrictions
+      # 3. Suggest products from preferred stores
+      # 4. Respect budget constraints
+      # 5. Use appropriate communication style
+
+# Logging Configuration
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "grocery_assistant.log"
+
+# Development Configuration
+development:
+  debug_mode: false
+  test_customer_profile_id: "4c432d3e-0a15-4272-beda-0d327088d5f6"
+  mock_external_apis: false
+  enable_detailed_logging: true
+
+# Performance Configuration
+performance:
+  response_timeout: 30
+  max_concurrent_requests: 50
+  cache_ttl: 300  # 5 minutes
+  enable_caching: true
+
+# Security Configuration
+security:
+  enable_input_validation: true
+  sanitize_user_input: true
+  rate_limit_by_ip: true
+  log_security_events: true 

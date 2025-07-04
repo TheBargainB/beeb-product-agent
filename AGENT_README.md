@@ -50,33 +50,41 @@ SUPABASE_ANON_KEY=your_supabase_anon_key_here
 
 The Supabase keys are available in your `supabase.md` file.
 
-### 3. Configuration Modes
+### 3. Configuration Architecture
 
-The agent supports two operation modes, configured in `config.yaml`:
+The agent uses a **multi-customer architecture** where the same codebase serves multiple customers:
 
-#### General Assistant Mode (Default)
+#### General Configuration (config.yaml)
 ```yaml
 customer_profile:
-  crm_profile_id: null  # Set to null
+  crm_profile_id: null  # Always null - customer ID comes from runtime
 ```
-- Works without customer-specific features
-- Memory and personalization are disabled
-- No database validation required
+- The YAML config contains general settings only
+- No customer-specific data is hardcoded
+- Same config is used for all customers
 
-#### Customer-Specific Mode
-```yaml
-customer_profile:
-  crm_profile_id: "your-customer-uuid-here"  # Set to valid UUID
+#### Runtime Customer Configuration
+Customer profile IDs are passed when creating/using assistants:
+
+```python
+# Example: Running agent with customer-specific profile
+config = {
+    "configurable": {
+        "user_id": "user_123",
+        "customer_profile_id": "uuid-of-customer-from-database"
+    }
+}
+
+result = graph.invoke({
+    "messages": [{"role": "user", "content": "What products do you have?"}]
+}, config)
 ```
-- Provides personalized experience with memory
-- Requires valid customer profile in database
-- Enables all customer-specific features
 
-**To set up customer-specific mode:**
-1. Query your database: `SELECT id, preferred_name, full_name FROM crm_profiles;`
-2. Copy the UUID of the customer you want to configure
-3. Replace `null` with the UUID string in quotes in `config.yaml`
-4. Deploy or restart the agent
+**Benefits:**
+- ✅ One codebase serves multiple customers
+- ✅ Customer-specific memory and personalization
+- ✅ No hardcoded customer data
+- ✅ Easy to scale to new customers
 
 ### 4. Test the Setup
 

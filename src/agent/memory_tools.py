@@ -26,13 +26,13 @@ class UpdateMemory(TypedDict):
 class SupabaseMemoryManager:
     """Memory management that works directly with Supabase tables."""
     
-    def __init__(self, model: ChatOpenAI, supabase_client: SupabaseClient):
+    def __init__(self, model: ChatOpenAI, supabase_client: SupabaseClient, crm_profile_id: Optional[str] = None):
         self.model = model
         self.supabase = supabase_client
         self.config = get_config()
         
-        # Get the configured CRM profile ID
-        self.crm_profile_id = self.config.get_crm_profile_id()
+        # Use provided CRM profile ID (from runtime config) or fallback to YAML config
+        self.crm_profile_id = crm_profile_id or self.config.get_crm_profile_id()
         
         # Skip validation if no profile ID is configured (general assistant mode)
         if self.crm_profile_id is None:
@@ -112,6 +112,77 @@ class SupabaseMemoryManager:
         except Exception as e:
             print(f"Error getting user profile: {e}")
             return None
+
+    def get_grocery_assistant_context(self) -> str:
+        """Get customer preferences formatted for grocery assistant context"""
+        if self.crm_profile_id is None:
+            return "No customer profile available - providing general grocery assistance."
+        
+        profile = self.get_user_profile()
+        if not profile:
+            return "Customer profile not found - providing general grocery assistance."
+        
+        context_parts = []
+        
+        # Customer identification
+        if profile.get('preferred_name') or profile.get('full_name'):
+            name = profile.get('preferred_name') or profile.get('full_name')
+            context_parts.append(f"Customer: {name}")
+        
+        # Dietary restrictions and allergies
+        if profile.get('dietary_restrictions'):
+            restrictions = ", ".join(profile['dietary_restrictions'])
+            context_parts.append(f"Dietary Restrictions/Allergies: {restrictions}")
+        
+        # Preferred stores and locations
+        if profile.get('preferred_stores'):
+            stores = ", ".join(profile['preferred_stores'])
+            context_parts.append(f"Preferred Stores: {stores}")
+        
+        # Shopping persona and style
+        if profile.get('shopping_persona'):
+            persona_descriptions = {
+                'healthHero': 'Health-focused, prefers organic and nutritious options',
+                'ecoShopper': 'Environmentally conscious, prefers sustainable and eco-friendly products',
+                'sensitiveStomach': 'Has sensitive stomach, needs gentle and easily digestible foods',
+                'budgetSaver': 'Budget-conscious, looks for deals and cost-effective options',
+                'convenienceShopper': 'Values convenience, prefers quick and easy meal solutions'
+            }
+            persona = profile['shopping_persona']
+            description = persona_descriptions.get(persona, persona)
+            context_parts.append(f"Shopping Style: {description}")
+        
+        # Budget constraints
+        if profile.get('budget_range'):
+            budget = profile['budget_range']
+            context_parts.append(f"Budget Range: {budget}")
+        
+        # Price sensitivity
+        if profile.get('price_sensitivity'):
+            sensitivity = profile['price_sensitivity']
+            context_parts.append(f"Price Sensitivity: {sensitivity}")
+        
+        # Shopping frequency
+        if profile.get('shopping_frequency'):
+            frequency = profile['shopping_frequency']
+            context_parts.append(f"Shopping Frequency: {frequency}")
+        
+        # Product interests
+        if profile.get('product_interests'):
+            interests = ", ".join(profile['product_interests'])
+            context_parts.append(f"Product Interests: {interests}")
+        
+        # Communication style
+        if profile.get('communication_style'):
+            style = profile['communication_style']
+            context_parts.append(f"Communication Preference: {style}")
+        
+        if context_parts:
+            context = "CUSTOMER PROFILE:\n" + "\n".join(f"• {part}" for part in context_parts)
+            context += "\n\nIMPORTANT: Always consider these preferences when making grocery recommendations, meal suggestions, and shopping advice."
+            return context
+        
+        return "Customer profile exists but no grocery preferences configured."
 
     def update_user_profile(self, updates: Dict[str, Any]) -> str:
         """Update user profile in crm_profiles table"""
@@ -368,64 +439,58 @@ class SupabaseMemoryManager:
 
     # Context Formatting
     def format_user_context(self) -> str:
-        """Format all user memory context for the model"""
+        """Format all user memory context for the model with grocery-specific preferences"""
         if self.crm_profile_id is None:
             return "Running in general assistant mode - no customer-specific context available."
         
-        profile = self.get_user_profile()
+        context_parts = []
+        
+        # Enhanced grocery-specific customer preferences
+        grocery_context = self.get_grocery_assistant_context()
+        if grocery_context and grocery_context != "Customer profile exists but no grocery preferences configured.":
+            context_parts.append(grocery_context)
+            context_parts.append("")
+        
+        # Get additional data for current activity context
         grocery_lists = self.get_grocery_lists(status='active')
         meal_plans = self.get_meal_plans(limit=5)
         budget = self.get_active_budget()
 
-        context_parts = []
-
-        # User Profile
-        if profile:
-            context_parts.append("**User Profile:**")
-            if profile.get('full_name') or profile.get('preferred_name'):
-                name = profile.get('preferred_name') or profile.get('full_name')
-                context_parts.append(f"- Name: {name}")
-            if profile.get('preferred_stores'):
-                context_parts.append(f"- Preferred Stores: {', '.join(profile['preferred_stores'])}")
-            if profile.get('dietary_restrictions'):
-                context_parts.append(f"- Dietary Restrictions: {', '.join(profile['dietary_restrictions'])}")
-            if profile.get('shopping_persona'):
-                context_parts.append(f"- Shopping Style: {profile['shopping_persona']}")
-            if profile.get('budget_range'):
-                context_parts.append(f"- Budget Range: {profile['budget_range']}")
-            context_parts.append("")
-
         # Active Grocery Lists
         if grocery_lists:
-            context_parts.append(f"**Active Grocery Lists ({len(grocery_lists)}):**")
+            context_parts.append(f"**CURRENT GROCERY LISTS ({len(grocery_lists)}):**")
             for i, glist in enumerate(grocery_lists[:3], 1):  # Show max 3 lists
                 item_count = len(glist.get('products', []))
                 total = glist.get('estimated_total', 0)
-                context_parts.append(f"{i}. {glist.get('list_name', 'Unnamed List')} - {item_count} items (€{total:.2f})")
+                store = glist.get('preferred_store', '')
+                store_info = f" at {store}" if store else ""
+                context_parts.append(f"• {glist.get('list_name', 'Unnamed List')}: {item_count} items (€{total:.2f}){store_info}")
             context_parts.append("")
 
         # Recent Meal Plans
         if meal_plans:
-            context_parts.append(f"**Recent Meal Plans ({len(meal_plans)}):**")
+            context_parts.append(f"**UPCOMING MEALS ({len(meal_plans)}):**")
             for plan in meal_plans:
                 status = "✓" if plan.get('is_completed') else "○"
                 meal_name = plan.get('custom_meal_name') or plan.get('recipe_name', 'Unnamed meal')
-                context_parts.append(f"- {status} {plan.get('meal_date')}: {meal_name} ({plan.get('meal_type')})")
+                context_parts.append(f"• {status} {plan.get('meal_date')}: {meal_name} ({plan.get('meal_type')})")
             context_parts.append("")
 
         # Active Budget
         if budget:
-            context_parts.append("**Current Budget:**")
-            context_parts.append(f"- Period: {budget['period_name']} ({budget['period_type']})")
-            context_parts.append(f"- Total: €{budget['total_budget']:.2f} (Spent: €{budget['total_spent']:.2f})")
+            context_parts.append("**CURRENT BUDGET:**")
+            spent_percentage = (budget['total_spent'] / budget['total_budget'] * 100) if budget['total_budget'] > 0 else 0
+            remaining = budget['total_budget'] - budget['total_spent']
+            context_parts.append(f"• Period: {budget['period_name']} ({budget['period_type']})")
+            context_parts.append(f"• Budget: €{remaining:.2f} remaining of €{budget['total_budget']:.2f} ({spent_percentage:.1f}% spent)")
             if budget['categories']:
-                context_parts.append("- Categories:")
+                context_parts.append("• Categories:")
                 for cat in budget['categories'][:3]:  # Show top 3 categories
-                    context_parts.append(f"  • {cat['name']}: €{cat['remaining']:.2f} remaining of €{cat['allocated']:.2f}")
+                    context_parts.append(f"  - {cat['name']}: €{cat['remaining']:.2f} left (€{cat['allocated']:.2f} allocated)")
             context_parts.append("")
 
         if not context_parts:
-            return "No user context available. This is a new customer."
+            return "No user context available. This is a new customer with no preferences or activity."
 
         return "\n".join(context_parts)
 

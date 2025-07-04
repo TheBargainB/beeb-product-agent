@@ -60,10 +60,15 @@ def create_enhanced_agent_graph():
     from langchain_openai import ChatOpenAI
     from .supabase_client import SupabaseClient
     
-    # Initialize the model, supabase client, and memory manager
+    # Initialize the model and supabase client
     model = ChatOpenAI(model="gpt-4o-mini", temperature=0)
     supabase_client = SupabaseClient()
-    memory_manager = SupabaseMemoryManager(model, supabase_client)
+    
+    def get_memory_manager(config: RunnableConfig) -> SupabaseMemoryManager:
+        """Get memory manager with customer profile ID from runtime config."""
+        # Extract customer profile ID from configurable parameters
+        customer_profile_id = config.get("configurable", {}).get("customer_profile_id")
+        return SupabaseMemoryManager(model, supabase_client, customer_profile_id)
     
     # Enhanced system message with memory context
     ENHANCED_SYSTEM_MESSAGE = """You are a helpful grocery and meal planning assistant for {customer_name}.
@@ -135,6 +140,7 @@ You help with grocery shopping, meal planning, budget tracking, and product reco
                             break
             
             # Get user context from memory manager
+            memory_manager = get_memory_manager(config)
             user_context = memory_manager.format_user_context()
             
             # Get the agent config (not the RunnableConfig)
@@ -216,6 +222,9 @@ You help with grocery shopping, meal planning, budget tracking, and product reco
         tool_call = state['messages'][-1].tool_calls[0]
         update_type = tool_call['args']['update_type']
         
+        # Get memory manager with customer profile ID from config
+        memory_manager = get_memory_manager(config)
+        
         # Route to appropriate memory update function
         if update_type == 'profile':
             result = memory_manager.update_profile_memory(state["messages"])
@@ -248,6 +257,7 @@ You help with grocery shopping, meal planning, budget tracking, and product reco
         
         try:
             # Get updated user context
+            memory_manager = get_memory_manager(config)
             user_context = memory_manager.format_user_context()
             
             # Get the original user query for compliance checking
@@ -312,7 +322,7 @@ If suggesting products, include specific stores and prices when possible."""
                 # Check communication compliance
                 compliance_check = guard_rails.validate_communication_compliance(validated_content, user_query)
                 
-                if not compliance_check["compliant"]:
+                if not compliance_check["is_compliant"]:
                     # Log compliance issues
                     for issue in compliance_check["issues"]:
                         guard_rails.logger.warning(f"Communication compliance issue: {issue}")

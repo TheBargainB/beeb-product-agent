@@ -247,3 +247,5 @@ LangGraph Studio
 ⚠️ DISCLAIMER
 
 Since the filming of these videos, we've updated Studio so that it can be run locally and opened in your browser. This is now the preferred way to run Studio (rather than using the Desktop App as shown in the video). See documentation here on the local development server and here. To start the local development server, run the following command in your terminal in the module-1/studio/ directory in this module:
+
+LANGSMITH_API_KEY=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
