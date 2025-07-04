@@ -130,17 +130,17 @@ def load_assistant_language_config(config: RunnableConfig) -> AssistantLanguageC
     if target_language in LANGUAGE_CONFIGS:
         base_config = LANGUAGE_CONFIGS[target_language]
         return AssistantLanguageConfig(
-            target_language=target_language,
-            enforcement_mode=enforcement_mode,
+            primary_language=target_language,
+            language_enforcement=enforcement_mode,
             **base_config
         )
     
     # Default fallback
     return AssistantLanguageConfig(
-        target_language=target_language,
-        enforcement_mode=enforcement_mode,
-        cultural_context=f"Communicate in {target_language} with appropriate cultural context.",
-        fallback_behavior="Use English if {target_language} is not possible."
+        primary_language=target_language,
+        language_enforcement=enforcement_mode,
+        fallback_language="english",
+        cultural_context=f"Communicate in {target_language} with appropriate cultural context."
     )
 
 # Enhanced state with retry tracking
