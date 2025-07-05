@@ -452,19 +452,32 @@ SYSTEM PROMPT ADDITIONS:
             try:
                 # Fallback to simple generation without enhanced features
                 print("🔄 Falling back to simple generation...")
-                from .nodes import generate_answer
                 
-                # Create simple conversation state
-                simple_state = {
-                    "messages": state["messages"],
+                # Create simple system message for fallback
+                runtime_agent_config = get_runtime_config(config)
+                simple_system_message = f"""You are {runtime_agent_config.get_instance_name()}, a helpful grocery shopping assistant for {runtime_agent_config.get_customer_name()}.
+
+You help with:
+- Finding products and groceries
+- Creating shopping lists  
+- Meal planning suggestions
+- Budget-conscious shopping
+
+Dietary restrictions: {', '.join(runtime_agent_config.get_dietary_restrictions()) if runtime_agent_config.get_dietary_restrictions() else 'None'}
+Preferred stores: {', '.join(runtime_agent_config.get_preferred_stores())}
+
+Use WhatsApp formatting: *bold text*, • bullet points, 🛒 emojis for headers."""
+
+                # Simple generation without tools
+                messages = [SystemMessage(content=simple_system_message)] + state["messages"]
+                response = model.invoke(messages)
+                
+                return {
+                    "messages": [response],
                     "tool_calls": [],
-                    "last_response": "",
+                    "last_response": response.content,
                     "conversation_complete": False
                 }
-                
-                # Use the simple generate_answer function
-                result = generate_answer(simple_state, config)
-                return result
                 
             except Exception as fallback_error:
                 logging.error(f"Fallback generation also failed: {fallback_error}")
