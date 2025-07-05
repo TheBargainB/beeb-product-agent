@@ -463,7 +463,7 @@ SYSTEM PROMPT ADDITIONS:
         try:
             # Extract memory type from tool call
             last_message = state["messages"][-1]
-            if not last_message.tool_calls:
+            if not hasattr(last_message, 'tool_calls') or not last_message.tool_calls:
                 return state
             
             tool_call = last_message.tool_calls[0]
@@ -544,7 +544,7 @@ SYSTEM PROMPT ADDITIONS:
         """Route after query generation based on tool calls."""
         last_message = state["messages"][-1]
         
-        if not last_message.tool_calls:
+        if not hasattr(last_message, 'tool_calls') or not last_message.tool_calls:
             return END
         
         tool_call = last_message.tool_calls[0]
