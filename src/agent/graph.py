@@ -36,7 +36,7 @@ from .memory_schemas import (
     LANGUAGE_CONFIGS,
     get_language_instructions
 )
-from .config import get_config
+from .config import get_config, AgentConfig
 from .guard_rails import (
     get_guard_rails, 
     RateLimitExceeded, 
