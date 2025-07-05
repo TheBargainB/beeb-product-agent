@@ -444,29 +444,56 @@ SYSTEM PROMPT ADDITIONS:
                 "conversation_complete": True
             }
         except Exception as e:
-            # Log unexpected errors
+            # Log unexpected errors and fall back to simple generation
             logging.error(f"Error in enhanced_generate_query_or_respond: {e}")
-            guard_rails.record_error(user_id, e)
-            fallback_response = guard_rails.get_fallback_response("general_error")
-            return {
-                "messages": [HumanMessage(content=fallback_response)],
-                "tool_calls": [],
-                "last_response": fallback_response,
-                "conversation_complete": True
-            }
+            import traceback
+            traceback.print_exc()
+            
+            try:
+                # Fallback to simple generation without enhanced features
+                print("🔄 Falling back to simple generation...")
+                from .nodes import generate_answer
+                
+                # Create simple conversation state
+                simple_state = {
+                    "messages": state["messages"],
+                    "tool_calls": [],
+                    "last_response": "",
+                    "conversation_complete": False
+                }
+                
+                # Use the simple generate_answer function
+                result = generate_answer(simple_state, config)
+                return result
+                
+            except Exception as fallback_error:
+                logging.error(f"Fallback generation also failed: {fallback_error}")
+                guard_rails.record_error(user_id, fallback_error)
+                fallback_response = guard_rails.get_fallback_response("general_error")
+                return {
+                    "messages": [HumanMessage(content=fallback_response)],
+                    "tool_calls": [],
+                    "last_response": fallback_response,
+                    "conversation_complete": True
+                }
 
     def update_user_memory(state: EnhancedMessagesState, config: RunnableConfig):
         """Update user memory based on the conversation."""
         user_id = config.get("configurable", {}).get("user_id", "anonymous")
-        enhanced_memory_manager = state.get("enhanced_memory_manager") or get_enhanced_memory_manager(config)
         
         try:
             # Extract memory type from tool call
             last_message = state["messages"][-1]
             if not hasattr(last_message, 'tool_calls') or not last_message.tool_calls:
+                print("⚠️  No tool calls found for memory update")
                 return state
             
             tool_call = last_message.tool_calls[0]
+            if 'args' not in tool_call or 'update_type' not in tool_call['args']:
+                print("⚠️  Invalid tool call structure for memory update")
+                return state
+                
+            enhanced_memory_manager = state.get("enhanced_memory_manager") or get_enhanced_memory_manager(config)
             update_type = tool_call['args']['update_type']
             
             # Prepare messages for Trustcall
@@ -525,8 +552,20 @@ SYSTEM PROMPT ADDITIONS:
             
         except Exception as e:
             print(f"Error updating memory: {e}")
+            import traceback
+            traceback.print_exc()
+            
+            # Get tool_call_id safely
+            tool_call_id = "unknown"
+            try:
+                last_message = state["messages"][-1]
+                if hasattr(last_message, 'tool_calls') and last_message.tool_calls:
+                    tool_call_id = last_message.tool_calls[0].get('id', 'unknown')
+            except:
+                pass
+                
             return {
-                "messages": [{"role": "tool", "content": f"Error updating memory: {str(e)}", "tool_call_id": tool_call['id']}]
+                "messages": [{"role": "tool", "content": f"Memory update skipped due to error: {str(e)}", "tool_call_id": tool_call_id}]
             }
 
     # Create the graph
