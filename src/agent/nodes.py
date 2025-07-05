@@ -327,6 +327,8 @@ def generate_answer(state: ConversationState, config: RunnableConfig) -> Dict[st
         
         # Get runtime configuration
         runtime_config = config.get("configurable", {})
+        print(f"DEBUG generate_answer: runtime_config keys: {list(runtime_config.keys())}")
+        print(f"DEBUG generate_answer: runtime_config sample: {dict(list(runtime_config.items())[:5])}")
         agent_config = AgentConfig.from_runtime_config(runtime_config)
         
         # Get user information from runtime config
@@ -388,6 +390,8 @@ Custom Instructions: {custom_instructions}
         
     except Exception as e:
         print(f"Error in generate_answer: {e}")
+        import traceback
+        traceback.print_exc()
         return {
             "messages": [{"role": "assistant", "content": "I apologize, but I encountered an error. Please try again."}],
             "tool_calls": [],
@@ -425,6 +429,8 @@ def generate_fallback(state: ConversationState, config: RunnableConfig) -> Dict[
     try:
         # Get runtime configuration
         runtime_config = config.get("configurable", {})
+        print(f"DEBUG generate_fallback: runtime_config keys: {list(runtime_config.keys())}")
+        print(f"DEBUG generate_fallback: runtime_config sample: {dict(list(runtime_config.items())[:5])}")
         agent_config = AgentConfig.from_runtime_config(runtime_config)
         
         # Get user information from runtime config
@@ -486,6 +492,8 @@ Custom Instructions: {custom_instructions}
         
     except Exception as e:
         print(f"Error in generate_fallback: {e}")
+        import traceback
+        traceback.print_exc()
         return {
             "messages": [{"role": "assistant", "content": "I apologize, but I'm having technical difficulties. Please try again."}],
             "tool_calls": [],
