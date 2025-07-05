@@ -243,6 +243,11 @@ def create_enhanced_agent_graph():
         customer_profile_id = config.get("configurable", {}).get("customer_profile_id")
         return EnhancedMemoryManager(model, supabase_client, memory_store, customer_profile_id)
     
+    def get_runtime_config(config: RunnableConfig) -> AgentConfig:
+        """Get AgentConfig instance with runtime configuration applied."""
+        runtime_config = config.get("configurable", {})
+        return AgentConfig.from_runtime_config(runtime_config)
+
     # Enhanced system message with memory context and flexible language configuration
     ENHANCED_SYSTEM_MESSAGE = """You are a helpful assistant named {instance_name} for {customer_name}.
 
@@ -290,11 +295,17 @@ You are a personalized assistant that remembers information about users and prov
     def enhanced_generate_query_or_respond(state: EnhancedMessagesState, config: RunnableConfig):
         """Enhanced query generation with comprehensive memory context and flexible language configuration."""
         start_time = time.time()
-        guard_rails = get_guard_rails()
         
         try:
-            # Extract user ID from config
-            user_id = config.get("configurable", {}).get("user_id", "anonymous")
+            # Get runtime configuration
+            runtime_agent_config = get_runtime_config(config)
+            
+            # Get guard rails with runtime configuration
+            guard_rails_config = config.get("configurable", {})
+            guard_rails = get_guard_rails(guard_rails_config)
+            
+            # Extract user ID from runtime config
+            user_id = runtime_agent_config.get_user_id()
             
             # Get the last user message for guard rails validation
             last_user_message = None
@@ -327,9 +338,6 @@ You are a personalized assistant that remembers information about users and prov
             enhanced_memory_manager = get_enhanced_memory_manager(config)
             memory_context = enhanced_memory_manager.format_memory_context(user_id)
             
-            # Get the agent config
-            agent_config = get_config()
-            
             # Load language configuration
             language_config = load_assistant_language_config(config)
             language_instructions = get_language_instructions(language_config)
@@ -338,15 +346,57 @@ You are a personalized assistant that remembers information about users and prov
             source = config.get("configurable", {}).get("source", "general")
             platform_formatting_instructions = get_platform_formatting_instructions(source)
             
+            # Build comprehensive context including runtime configuration
+            dietary_restrictions = runtime_agent_config.get_dietary_restrictions()
+            preferred_stores = runtime_agent_config.get_preferred_stores()
+            shopping_persona = runtime_agent_config.get_shopping_persona()
+            budget_range = runtime_agent_config.get_budget_range()
+            price_sensitivity = runtime_agent_config.get_price_sensitivity()
+            custom_instructions = runtime_agent_config.get_custom_instructions()
+            system_prompt_additions = runtime_agent_config.get_system_prompt_additions()
+            
+            # Enhanced user context with runtime configuration
+            enhanced_user_context = f"""
+{user_context}
+
+CUSTOMER PREFERENCES (Runtime Configuration):
+- Dietary Restrictions: {', '.join(dietary_restrictions) if dietary_restrictions else 'None'}
+- Preferred Stores: {', '.join(preferred_stores)}
+- Shopping Persona: {shopping_persona}
+- Budget Range: {budget_range}
+- Price Sensitivity: {price_sensitivity}
+- Shopping Frequency: {runtime_agent_config.get_shopping_frequency()}
+- Response Style: {runtime_agent_config.get_response_style()}
+- Use Emojis: {runtime_agent_config.should_use_emojis()}
+- Include Tips: {runtime_agent_config.should_include_tips()}
+
+FEATURE TOGGLES:
+- Meal Planning: {runtime_agent_config.is_meal_planning_enabled()}
+- Grocery Lists: {runtime_agent_config.is_grocery_lists_enabled()}
+- Budget Tracking: {runtime_agent_config.is_budget_tracking_enabled()}
+- Recipe Suggestions: {runtime_agent_config.is_recipe_suggestions_enabled()}
+- Pricing Data: {runtime_agent_config.is_pricing_data_enabled()}
+- Price Comparison: {runtime_agent_config.is_price_comparison_enabled()}
+- Personalized Recommendations: {runtime_agent_config.is_personalized_recommendations_enabled()}
+- Consider Dietary Restrictions: {runtime_agent_config.should_consider_dietary_restrictions()}
+- Consider Budget Constraints: {runtime_agent_config.should_consider_budget_constraints()}
+
+CUSTOM INSTRUCTIONS:
+{custom_instructions}
+
+SYSTEM PROMPT ADDITIONS:
+{system_prompt_additions}
+""".strip()
+            
             # Generate system message with all context
             system_message = ENHANCED_SYSTEM_MESSAGE.format(
-                instance_name=agent_config.get_instance_name(),
-                customer_name=agent_config.get_customer_name(),
+                instance_name=runtime_agent_config.get_instance_name(),
+                customer_name=runtime_agent_config.get_customer_name(),
                 language_instructions=language_instructions,
-                user_context=user_context,
+                user_context=enhanced_user_context,
                 memory_context=memory_context,
                 platform_formatting_instructions=platform_formatting_instructions,
-                max_response_length=agent_config.get_max_response_length()
+                max_response_length=runtime_agent_config.get_max_response_length()
             )
             
             # Decision tool for memory updates
@@ -362,40 +412,46 @@ You are a personalized assistant that remembers information about users and prov
             all_tools = AVAILABLE_TOOLS + [UpdateMemoryDecision]
             enhanced_model = model.bind_tools(all_tools, parallel_tool_calls=False)
             
+            # Create the message chain
+            messages = [SystemMessage(content=system_message)] + state["messages"]
+            
             # Make the LLM call
-            response = enhanced_model.invoke([SystemMessage(content=system_message)] + state["messages"])
+            response = enhanced_model.invoke(messages)
             
-            # Check cost limits based on token usage
-            if hasattr(response, 'usage_metadata') and response.usage_metadata:
-                tokens_used = response.usage_metadata.get('total_tokens', 0)
-                guard_rails.check_cost_limits(user_id, tokens_used=tokens_used, tool_calls=len(response.tool_calls) if response.tool_calls else 0)
+            # Record response time for guard rails
+            response_time = time.time() - start_time
+            guard_rails.record_response_time(response_time)
             
-
-            
-            # Store the enhanced memory manager in state for later use
+            # Update enhanced memory manager in state
             state["enhanced_memory_manager"] = enhanced_memory_manager
             
             return {
                 "messages": [response],
-                "retry_count": 0,
-                "enhanced_memory_manager": enhanced_memory_manager
+                "tool_calls": response.tool_calls if response.tool_calls else [],
+                "last_response": response.content,
+                "conversation_complete": False
             }
             
         except (RateLimitExceeded, ContentSafetyViolation, CostLimitExceeded) as e:
-            # Return error message for guard rail violations
-            error_response = {
-                "role": "assistant",
-                "content": f"I apologize, but I cannot process your request at this time. {str(e)}"
-            }
+            # Handle guard rail violations
+            guard_rails.record_error(user_id, e)
+            fallback_response = guard_rails.get_fallback_response(type(e).__name__.lower())
             return {
-                "messages": [error_response],
-                "retry_count": 0
+                "messages": [HumanMessage(content=fallback_response)],
+                "tool_calls": [],
+                "last_response": fallback_response,
+                "conversation_complete": True
             }
         except Exception as e:
-            print(f"Error in enhanced_generate_query_or_respond: {e}")
+            # Log unexpected errors
+            logging.error(f"Error in enhanced_generate_query_or_respond: {e}")
+            guard_rails.record_error(user_id, e)
+            fallback_response = guard_rails.get_fallback_response("general_error")
             return {
-                "messages": [{"role": "assistant", "content": "I apologize, but I encountered an error. Please try again."}],
-                "retry_count": 0
+                "messages": [HumanMessage(content=fallback_response)],
+                "tool_calls": [],
+                "last_response": fallback_response,
+                "conversation_complete": True
             }
 
     def update_user_memory(state: EnhancedMessagesState, config: RunnableConfig):

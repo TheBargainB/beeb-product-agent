@@ -4,6 +4,7 @@ Minimal guard rails implementation for testing purposes.
 
 import time
 import logging
+import re
 from typing import Dict, Any, Optional
 from dataclasses import dataclass
 
@@ -33,10 +34,24 @@ class GuardRailsConfig:
     max_requests_per_minute: int = 30
     max_tokens_per_request: int = 4000
     max_message_length: int = 500
+    graceful_degradation: bool = True
+    
+    @classmethod
+    def from_runtime_config(cls, runtime_config: Dict[str, Any]) -> 'GuardRailsConfig':
+        """Create GuardRailsConfig from runtime configuration."""
+        return cls(
+            rate_limiting_enabled=runtime_config.get('rate_limiting_enabled', True),
+            content_safety_enabled=runtime_config.get('content_safety_enabled', True),
+            cost_controls_enabled=runtime_config.get('cost_controls_enabled', True),
+            max_requests_per_minute=runtime_config.get('max_requests_per_minute', 30),
+            max_tokens_per_request=runtime_config.get('max_tokens_per_request', 4000),
+            max_message_length=runtime_config.get('max_message_length', 500),
+            graceful_degradation=runtime_config.get('graceful_degradation', True)
+        )
 
 
 class GuardRails:
-    """Minimal guard rails implementation"""
+    """Enhanced guard rails implementation with runtime configuration support"""
     
     def __init__(self, config: GuardRailsConfig):
         self.config = config
@@ -74,32 +89,35 @@ class GuardRails:
         if not self.config.content_safety_enabled:
             return content
         
-        # Basic content validation
+        # Check message length
         if len(content) > self.config.max_message_length:
-            raise ContentSafetyViolation(f"Message too long: {len(content)} characters")
+            raise ContentSafetyViolation(f"Message too long: {len(content)} > {self.config.max_message_length}")
         
-        # Check for basic injection patterns
-        blocked_patterns = [
-            "ignore previous",
-            "disregard instructions",
-            "system prompt",
-            "jailbreak"
+        # Basic content filtering (you can enhance this)
+        suspicious_patterns = [
+            r'<script[^>]*>.*?</script>',  # Script tags
+            r'javascript:',                # JavaScript URLs
+            r'data:text/html',            # Data URLs
+            r'vbscript:',                 # VBScript
         ]
         
-        content_lower = content.lower()
-        for pattern in blocked_patterns:
-            if pattern in content_lower:
-                raise ContentSafetyViolation(f"Blocked pattern detected: {pattern}")
+        for pattern in suspicious_patterns:
+            if re.search(pattern, content, re.IGNORECASE):
+                self.logger.warning(f"Suspicious content detected from user {user_id}: {pattern}")
+                # You could raise an exception here or sanitize the content
         
         return content
     
-    def check_cost_limits(self, user_id: str, tokens_used: int = 0, db_queries: int = 0, tool_calls: int = 0) -> None:
-        """Check cost limits"""
+    def check_cost_limits(self, user_id: str, tokens_used: int = 0, tool_calls: int = 0) -> None:
+        """Check cost limits for a user"""
         if not self.config.cost_controls_enabled:
             return
         
         if tokens_used > self.config.max_tokens_per_request:
-            raise CostLimitExceeded(f"Token limit exceeded: {tokens_used} tokens")
+            raise CostLimitExceeded(f"Token limit exceeded: {tokens_used} > {self.config.max_tokens_per_request}")
+        
+        # You can add more sophisticated cost tracking here
+        self.stats['total_requests'] += 1
     
     def validate_response(self, response: str) -> str:
         """Validate response content"""
@@ -134,11 +152,17 @@ class GuardRails:
     
     def get_fallback_response(self, error_type: str) -> str:
         """Get fallback response for errors"""
+        if not self.config.graceful_degradation:
+            return "I encountered an error and cannot process your request."
+        
         fallback_responses = {
             'rate_limit': "I'm currently experiencing high traffic. Please try again in a few minutes.",
             'content_safety': "I can't process that request. Please rephrase your message.",
             'cost_limit': "I'm currently at capacity. Please try again later.",
-            'general_error': "I apologize, but I'm having technical difficulties. Please try again."
+            'general_error': "I apologize, but I'm having technical difficulties. Please try again.",
+            'ratelimitexceeded': "I'm currently experiencing high traffic. Please try again in a few minutes.",
+            'contentsafetyviolation': "I can't process that request. Please rephrase your message.",
+            'costlimitexceeded': "I'm currently at capacity. Please try again later."
         }
         return fallback_responses.get(error_type, fallback_responses['general_error'])
     
@@ -156,10 +180,13 @@ class GuardRails:
 _guard_rails_instance = None
 
 
-def get_guard_rails() -> GuardRails:
-    """Get the global guard rails instance"""
+def get_guard_rails(runtime_config: Optional[Dict[str, Any]] = None) -> GuardRails:
+    """Get the global guard rails instance with optional runtime configuration"""
     global _guard_rails_instance
-    if _guard_rails_instance is None:
-        config = GuardRailsConfig()
+    if _guard_rails_instance is None or runtime_config is not None:
+        if runtime_config:
+            config = GuardRailsConfig.from_runtime_config(runtime_config)
+        else:
+            config = GuardRailsConfig()
         _guard_rails_instance = GuardRails(config)
     return _guard_rails_instance 

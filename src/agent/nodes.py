@@ -325,18 +325,34 @@ def generate_answer(state: ConversationState, config: RunnableConfig) -> Dict[st
         # Get the enhanced model with tools
         enhanced_model = response_model.bind_tools(AVAILABLE_TOOLS, parallel_tool_calls=False)
         
-        # Get agent configuration
-        agent_config = AgentConfig.from_config(config)
+        # Get runtime configuration
+        runtime_config = config.get("configurable", {})
+        agent_config = AgentConfig.from_runtime_config(runtime_config)
         
-        # Get user information
+        # Get user information from runtime config
         user_id = agent_config.get_user_id()
         instance_name = agent_config.get_instance_name()
         customer_name = agent_config.get_customer_name()
         max_response_length = agent_config.get_max_response_length()
         
-        # Simplified context - for now just use basic information
-        user_context = f"User ID: {user_id}"
-        memory_context = "No specific memory context available"
+        # Build enhanced context with runtime configuration
+        dietary_restrictions = agent_config.get_dietary_restrictions()
+        preferred_stores = agent_config.get_preferred_stores()
+        shopping_persona = agent_config.get_shopping_persona()
+        budget_range = agent_config.get_budget_range()
+        custom_instructions = agent_config.get_custom_instructions()
+        
+        # Enhanced user context with runtime configuration
+        user_context = f"""
+User ID: {user_id}
+Dietary Restrictions: {', '.join(dietary_restrictions) if dietary_restrictions else 'None'}
+Preferred Stores: {', '.join(preferred_stores)}
+Shopping Persona: {shopping_persona}
+Budget Range: {budget_range}
+Custom Instructions: {custom_instructions}
+""".strip()
+        
+        memory_context = "Memory context will be integrated here"
         
         # Load language configuration
         language_config = load_assistant_language_config(config)
@@ -363,29 +379,19 @@ def generate_answer(state: ConversationState, config: RunnableConfig) -> Dict[st
         # Make the LLM call
         response = enhanced_model.invoke(messages)
         
-        # Process any tool calls
-        if response.tool_calls:
-            return {
-                "messages": [response],
-                "tool_calls": response.tool_calls,
-                "last_response": response.content if response.content else "",
-                "conversation_complete": False
-            }
-        
-        # No tool calls, conversation is complete
         return {
             "messages": [response],
-            "tool_calls": [],
+            "tool_calls": response.tool_calls if response.tool_calls else [],
             "last_response": response.content,
-            "conversation_complete": True
+            "conversation_complete": False
         }
         
     except Exception as e:
-        logger.error(f"Error in generate_answer: {str(e)}")
+        print(f"Error in generate_answer: {e}")
         return {
-            "messages": [],
+            "messages": [{"role": "assistant", "content": "I apologize, but I encountered an error. Please try again."}],
             "tool_calls": [],
-            "last_response": f"I apologize, but I encountered an error: {str(e)}",
+            "last_response": "Error occurred",
             "conversation_complete": True
         }
 
@@ -417,18 +423,34 @@ FALLBACK_PROMPT = (
 def generate_fallback(state: ConversationState, config: RunnableConfig) -> Dict[str, Any]:
     """Generate a fallback response when search fails."""
     try:
-        # Get agent configuration
-        agent_config = AgentConfig.from_config(config)
+        # Get runtime configuration
+        runtime_config = config.get("configurable", {})
+        agent_config = AgentConfig.from_runtime_config(runtime_config)
         
-        # Get user information
+        # Get user information from runtime config
         user_id = agent_config.get_user_id()
         instance_name = agent_config.get_instance_name()
         customer_name = agent_config.get_customer_name()
         max_response_length = agent_config.get_max_response_length()
         
-        # Simplified context - for now just use basic information
-        user_context = f"User ID: {user_id}"
-        memory_context = "No specific memory context available"
+        # Build enhanced context with runtime configuration
+        dietary_restrictions = agent_config.get_dietary_restrictions()
+        preferred_stores = agent_config.get_preferred_stores()
+        shopping_persona = agent_config.get_shopping_persona()
+        budget_range = agent_config.get_budget_range()
+        custom_instructions = agent_config.get_custom_instructions()
+        
+        # Enhanced user context with runtime configuration
+        user_context = f"""
+User ID: {user_id}
+Dietary Restrictions: {', '.join(dietary_restrictions) if dietary_restrictions else 'None'}
+Preferred Stores: {', '.join(preferred_stores)}
+Shopping Persona: {shopping_persona}
+Budget Range: {budget_range}
+Custom Instructions: {custom_instructions}
+""".strip()
+        
+        memory_context = "Memory context will be integrated here"
         
         # Load language configuration
         language_config = load_assistant_language_config(config)
@@ -463,10 +485,10 @@ def generate_fallback(state: ConversationState, config: RunnableConfig) -> Dict[
         }
         
     except Exception as e:
-        logger.error(f"Error in generate_fallback: {str(e)}")
+        print(f"Error in generate_fallback: {e}")
         return {
-            "messages": [],
+            "messages": [{"role": "assistant", "content": "I apologize, but I'm having technical difficulties. Please try again."}],
             "tool_calls": [],
-            "last_response": "I apologize, but I'm having trouble processing your request right now. Please try again later.",
+            "last_response": "Error occurred",
             "conversation_complete": True
         } 
