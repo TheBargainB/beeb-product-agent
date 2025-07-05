@@ -42,7 +42,9 @@ response_model = init_chat_model("openai:gpt-4o-mini", temperature=0)
 logger = logging.getLogger(__name__)
 
 # Enhanced system message with memory context and flexible language configuration
-ENHANCED_SYSTEM_MESSAGE = """You are a helpful assistant named {instance_name} for {customer_name}.
+ENHANCED_SYSTEM_MESSAGE = """{platform_formatting_instructions}
+
+You are a helpful assistant named {instance_name} for {customer_name}.
 
 {language_instructions}
 
@@ -60,8 +62,6 @@ You are a personalized assistant that remembers information about users and prov
 
 📝 **Memory Context:**
 {memory_context}
-
-{platform_formatting_instructions}
 
 🎯 **Instructions:**
 1. **Be Personal**: Use the user's memory context to provide personalized responses
@@ -87,21 +87,49 @@ def get_platform_formatting_instructions(source: str) -> str:
     """Get platform-specific formatting instructions."""
     if source == "whatsapp":
         return """
-📱 **WHATSAPP FORMATTING RULES - IMPORTANT:**
-- **NEVER use markdown formatting** like **bold**, *italic*, # headers, or ## subheaders
-- **Use WhatsApp formatting instead:**
-  - For emphasis: Use *bold text* (single asterisks)
-  - For lists: Use • bullet points, not - or *
-  - For headers: Use 🔥 for main topics, 📌 for sections
-  - For recipes: Use 🍽️ for recipe names, 🥘 for ingredients, 👨‍🍳 for instructions
-  - For grocery lists: Use 🛒 for shopping lists, 💰 for costs
-  - For meal plans: Use 🌅 for breakfast, 🌞 for lunch, 🌙 for dinner
-- **Examples of CORRECT WhatsApp formatting:**
-  - Recipe: "🍽️ *Hummus Recipe*" (NOT "# Hummus Recipe")
-  - Ingredients: "🥘 *Ingredients*:" (NOT "## Ingredients:")
-  - Lists: "• 2 cups chickpeas" (NOT "- 2 cups chickpeas")
-  - Instructions: "👨‍🍳 *Instructions*:" (NOT "## Instructions:")
-- **Keep it clean and readable for WhatsApp messaging**"""
+🚨 **CRITICAL WHATSAPP FORMATTING - MUST FOLLOW EXACTLY:**
+
+❌ **ABSOLUTELY FORBIDDEN - DO NOT USE:**
+- ## Headers or ### Subheaders 
+- **Double asterisk bold**
+- __Double underscore__
+- `Code blocks`
+- [Links](url)
+- > Blockquotes
+- --- Dividers
+
+✅ **REQUIRED WHATSAPP FORMAT:**
+- Headers: Use emojis + *single asterisk bold*
+- Bold text: *text* (single asterisks only)
+- Lists: • bullet points (never use - or *)
+- Line breaks: Use normal line breaks
+
+✅ **EXACT EXAMPLES TO FOLLOW:**
+❌ Wrong: "## Healthy Pasta Recipe"
+✅ Correct: "🍝 *Healthy Pasta Recipe*"
+
+❌ Wrong: "### Ingredients:"
+✅ Correct: "🥘 *Ingredients*:"
+
+❌ Wrong: "**200g pasta**"
+✅ Correct: "*200g pasta*"
+
+❌ Wrong: "- 2 cups flour"
+✅ Correct: "• 2 cups flour"
+
+❌ Wrong: "### Instructions:"
+✅ Correct: "👨‍🍳 *Instructions*:"
+
+🎯 **EMOJI GUIDE FOR HEADERS:**
+- 🍽️ Recipe names
+- 🥘 Ingredients sections  
+- 👨‍🍳 Instructions/Steps
+- 🛒 Shopping/Grocery lists
+- 💰 Prices/Budget info
+- 📅 Meal planning
+- 💡 Tips/Suggestions
+
+⚠️ **THIS IS MANDATORY - NO EXCEPTIONS. ANY MARKDOWN USAGE WILL BREAK WHATSAPP DISPLAY.**"""
     elif source == "telegram":
         return """
 💬 **TELEGRAM FORMATTING:**
