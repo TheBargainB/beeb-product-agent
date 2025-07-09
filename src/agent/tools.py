@@ -231,13 +231,13 @@ def compare_product_prices(gtin: str) -> str:
 
 
 @tool
-def get_budget_meal_options(budget_per_meal: float, dietary_restrictions: List[str] = None) -> str:
+def get_budget_meal_options(budget_per_meal: float, dietary_preferences: List[str] = None) -> str:
     """
     Find complete meal options within a specified budget.
     
     Args:
         budget_per_meal: Maximum budget per meal in euros
-        dietary_restrictions: Optional list of dietary restrictions 
+        dietary_preferences: Optional list of dietary preferences 
                             (e.g., ['vegetarian', 'gluten-free', 'low-sodium'])
         
     Returns:
@@ -246,7 +246,7 @@ def get_budget_meal_options(budget_per_meal: float, dietary_restrictions: List[s
     try:
         params = {
             'budget_per_meal': budget_per_meal,
-            'dietary_restrictions': dietary_restrictions or []
+            'dietary_preferences': dietary_preferences or []
         }
         
         response = supabase_client.client.rpc('get_budget_meal_options', params).execute()
@@ -257,8 +257,8 @@ def get_budget_meal_options(budget_per_meal: float, dietary_restrictions: List[s
         meals = response.data
         result = f"Found {len(meals)} meal options within €{budget_per_meal} budget"
         
-        if dietary_restrictions:
-            result += f" (dietary restrictions: {', '.join(dietary_restrictions)})"
+        if dietary_preferences:
+            result += f" (dietary preferences: {', '.join(dietary_preferences)})"
         
         result += ":\n\n"
         
