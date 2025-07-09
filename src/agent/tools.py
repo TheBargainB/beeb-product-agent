@@ -186,7 +186,7 @@ def compare_product_prices(gtin: str) -> str:
         Formatted string with price comparison across stores
     """
     try:
-        response = supabase_client.client.rpc('compare_product_prices', {'product_gtin': gtin}).execute()
+        response = supabase_client.client.rpc('compare_product_prices', {'gtin_input': gtin}).execute()
         
         if not response.data:
             return f"No price comparison available for GTIN: {gtin}"
@@ -291,7 +291,7 @@ def get_price_alternatives(product_id: str, max_price: float) -> str:
     """
     try:
         params = {
-            'product_id': product_id,
+            'target_product_id': product_id,
             'max_price': max_price
         }
         
@@ -328,7 +328,7 @@ def build_grocery_list(product_ids: List[str], target_budget: float) -> str:
     try:
         params = {
             'product_ids': product_ids,
-            'target_budget': target_budget
+            'budget': target_budget
         }
         
         response = supabase_client.client.rpc('build_grocery_list', params).execute()
