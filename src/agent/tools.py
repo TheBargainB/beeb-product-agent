@@ -238,36 +238,136 @@ def get_budget_meal_options(budget_per_meal: float, dietary_preferences: List[st
     Args:
         budget_per_meal: Maximum budget per meal in euros
         dietary_preferences: Optional list of dietary preferences 
-                            (e.g., ['vegetarian', 'gluten-free', 'low-sodium'])
+                            (e.g., ['vegetarian', 'low-carb', 'high-protein', 'healthy'])
         
     Returns:
         Formatted string with meal suggestions within budget
     """
     try:
+        # Map common dietary preferences to available database tags
+        preference_mapping = {
+            'low-carb': ['healthy'],
+            'high-protein': ['healthy'],
+            'protein': ['healthy'],
+            'low carb': ['healthy'],
+            'high protein': ['healthy'],
+            'keto': ['healthy'],
+            'paleo': ['healthy'],
+            'clean eating': ['healthy'],
+            'nutritious': ['healthy'],
+            'diet': ['healthy'],
+            'weight loss': ['healthy'],
+            'fitness': ['healthy'],
+            'vegan': ['vegetarian'],
+            'plant-based': ['vegetarian'],
+            'plant based': ['vegetarian'],
+            'meatless': ['vegetarian'],
+            'gluten-free': ['healthy'],
+            'gluten free': ['healthy'],
+            'dairy-free': ['healthy'],
+            'dairy free': ['healthy'],
+            'quick': ['quick'],
+            'fast': ['quick'],
+            'easy': ['quick'],
+            'simple': ['quick'],
+            'lunch': ['lunch'],
+            'dinner': [],
+            'breakfast': [],
+            'comfort': ['comfort'],
+            'warming': ['warm'],
+            'warm': ['warm'],
+            'hot': ['warm'],
+            'fresh': ['fresh'],
+            'light': ['fresh'],
+            'crisp': ['fresh'],
+            'salad': ['fresh', 'healthy']
+        }
+        
+        # Convert user preferences to database-supported tags
+        mapped_preferences = []
+        if dietary_preferences:
+            for pref in dietary_preferences:
+                pref_lower = pref.lower().strip()
+                if pref_lower in preference_mapping:
+                    mapped_preferences.extend(preference_mapping[pref_lower])
+                elif pref_lower in ['vegetarian', 'healthy', 'fresh', 'quick', 'lunch', 'comfort', 'warm']:
+                    # Direct matches for supported tags
+                    mapped_preferences.append(pref_lower)
+        
+        # Remove duplicates and empty values
+        mapped_preferences = list(set([p for p in mapped_preferences if p]))
+        
+        # If no preferences mapped, try without filtering
+        if dietary_preferences and not mapped_preferences:
+            mapped_preferences = None
+        
         params = {
             'budget_per_meal': budget_per_meal,
-            'dietary_preferences': dietary_preferences or []
+            'dietary_preferences': mapped_preferences
         }
         
         response = supabase_client.client.rpc('get_budget_meal_options', params).execute()
         
         if not response.data:
-            return f"No meal options found within €{budget_per_meal} budget"
+            # Try again without dietary preferences if none found
+            if mapped_preferences:
+                params = {
+                    'budget_per_meal': budget_per_meal,
+                    'dietary_preferences': None
+                }
+                response = supabase_client.client.rpc('get_budget_meal_options', params).execute()
+                
+                if response.data:
+                    result = f"No meals found matching your dietary preferences within €{budget_per_meal}, but here are general options:\n\n"
+                else:
+                    return f"No meal options found within €{budget_per_meal} budget"
+            else:
+                return f"No meal options found within €{budget_per_meal} budget"
         
         meals = response.data
-        result = f"Found {len(meals)} meal options within €{budget_per_meal} budget"
+        if not meals:
+            return f"No meal options found within €{budget_per_meal} budget"
         
-        if dietary_preferences:
-            result += f" (dietary preferences: {', '.join(dietary_preferences)})"
-        
-        result += ":\n\n"
+        if 'No meals found matching' not in locals().get('result', ''):
+            result = f"Found {len(meals)} meal options within €{budget_per_meal} budget"
+            
+            if dietary_preferences:
+                original_prefs = ', '.join(dietary_preferences)
+                if mapped_preferences:
+                    mapped_prefs = ', '.join(mapped_preferences)
+                    result += f" (preferences: {original_prefs} → mapped to: {mapped_prefs})"
+                else:
+                    result += f" (preferences: {original_prefs})"
+            
+            result += ":\n\n"
         
         for meal in meals:
-            result += f"Meal: {meal.get('meal_name', 'N/A')}\n"
-            result += f"Total Cost: €{meal.get('total_cost', 'N/A')}\n"
-            result += f"Items: {meal.get('item_count', 'N/A')} products\n"
-            if meal.get('description'):
-                result += f"Description: {meal.get('description')}\n"
+            meal_name = meal.get('meal_concept', meal.get('meal_name', 'Unknown Meal'))
+            total_cost = meal.get('total_cost', 'N/A')
+            ingredient_count = meal.get('ingredient_count', meal.get('item_count', 'N/A'))
+            dietary_tags = meal.get('dietary_tags', [])
+            cost_per_serving = meal.get('cost_per_serving', 'N/A')
+            
+            result += f"🍽️ **{meal_name}**\n"
+            result += f"   Total Cost: €{total_cost}\n"
+            result += f"   Ingredients: {ingredient_count} items\n"
+            if cost_per_serving != 'N/A':
+                result += f"   Cost per serving: €{cost_per_serving}\n"
+            
+            if dietary_tags:
+                result += f"   Tags: {', '.join(dietary_tags)}\n"
+            
+            # Show main ingredients if available
+            main_ingredients = meal.get('main_ingredients', meal.get('ingredients_detail', []))
+            if main_ingredients and isinstance(main_ingredients, list):
+                result += f"   Key ingredients:\n"
+                for ingredient in main_ingredients[:3]:  # Show top 3 ingredients
+                    if isinstance(ingredient, dict):
+                        ing_name = ingredient.get('ingredient', 'Unknown')
+                        ing_price = ingredient.get('price', 'N/A')
+                        ing_store = ingredient.get('store', 'Unknown Store')
+                        result += f"     • {ing_name} - €{ing_price} at {ing_store}\n"
+            
             result += "\n"
         
         return result
